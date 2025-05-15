@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,23 @@ export default function Home() {
     router.push('/chat');
   };
 
+  // Subtle glow animation for the welcome text
+  const glowVariants = {
+    animate: {
+      textShadow: [
+        "0 0 8px rgba(149, 128, 255, 0.5)",
+        "0 0 16px rgba(149, 128, 255, 0.8)",
+        "0 0 24px rgba(149, 128, 255, 0.3)",
+        "0 0 8px rgba(149, 128, 255, 0.5)"
+      ],
+      transition: {
+        duration: 3,
+        repeat: Infinity,
+        ease: "easeInOut"
+      }
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-background to-background/90 dark:from-card dark:to-background flex items-center justify-center">
@@ -63,7 +80,58 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-background/90 dark:from-card dark:to-background">
+    <div className="min-h-screen bg-gradient-to-b from-background to-background/90 dark:from-card dark:to-background relative overflow-hidden">
+      {/* Ambient background effects */}
+      <div className="absolute inset-0 overflow-hidden">
+        {/* Animated smoke/fog effect */}
+        <div className="absolute top-0 left-0 w-full h-full opacity-20">
+          <motion.div 
+            className="absolute top-1/4 left-1/3 w-96 h-96 rounded-full bg-purple-500/10 blur-3xl"
+            animate={{
+              x: [0, 30, -20, 0],
+              y: [0, -30, 20, 0],
+              scale: [1, 1.2, 0.9, 1],
+            }}
+            transition={{
+              duration: 15,
+              repeat: Infinity,
+              ease: "easeInOut"
+            }}
+          />
+          <motion.div 
+            className="absolute bottom-1/4 right-1/3 w-96 h-96 rounded-full bg-blue-500/10 blur-3xl"
+            animate={{
+              x: [0, -40, 30, 0],
+              y: [0, 40, -30, 0],
+              scale: [1, 0.8, 1.1, 1],
+            }}
+            transition={{
+              duration: 18,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: 1
+            }}
+          />
+          <motion.div 
+            className="absolute top-1/2 left-1/2 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl"
+            animate={{
+              x: [0, 50, -40, 0],
+              y: [0, -50, 40, 0],
+              scale: [1, 1.1, 0.9, 1],
+            }}
+            transition={{
+              duration: 20,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: 2
+            }}
+          />
+        </div>
+        
+        {/* Enhanced grid effect */}
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080801a_1px,transparent_1px),linear-gradient(to_bottom,#8080801a_1px,transparent_1px)] bg-[size:30px_30px] opacity-30"></div>
+      </div>
+      
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -80,16 +148,20 @@ export default function Home() {
         </div>
       </motion.div>
       
-      <div className="container mx-auto px-4 py-16 max-w-4xl">
+      <div className="container mx-auto px-4 py-16 max-w-4xl relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
           className="text-center mb-16"
         >
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/80 dark:from-primary dark:to-primary/80">
+          <motion.h1 
+            className="text-5xl md:text-6xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 dark:from-indigo-300 dark:to-purple-300"
+            variants={glowVariants}
+            animate="animate"
+          >
             Welcome, {name?.split(' ')[0] || 'Friend'}
-          </h1>
+          </motion.h1>
           <p className="text-xl text-muted-foreground">
             How would you like to connect with Nura today?
           </p>
@@ -108,14 +180,14 @@ export default function Home() {
                 <Button 
                   variant="outline" 
                   size="lg"
-                  className="w-full h-60 rounded-xl border-2 bg-card/50 backdrop-blur-sm hover:bg-card/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center justify-center gap-4"
+                  className="w-full h-60 rounded-xl border-2 bg-card/50 backdrop-blur-sm hover:bg-card/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center justify-center gap-4 shadow-[0_0_15px_rgba(79,70,229,0.15)]"
                 >
                   <div className="relative">
                     <div className="absolute -inset-4 bg-primary/10 rounded-full animate-pulse"></div>
                     <PhoneIcon size={48} className="text-primary" />
                   </div>
                   <div className="text-lg font-semibold">Talk to Nura</div>
-                  <p className="text-sm text-muted-foreground max-w-xs">
+                  <p className="text-sm text-muted-foreground max-w-[80%] text-center px-4 whitespace-normal break-words leading-relaxed">
                     Have a conversation with Nura through voice for a more personal experience
                   </p>
                 </Button>
@@ -204,7 +276,7 @@ export default function Home() {
             <Button 
               variant="outline"
               size="lg"
-              className="w-full h-60 rounded-xl border-2 bg-card/50 backdrop-blur-sm hover:bg-card/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center justify-center gap-4"
+              className="w-full h-60 rounded-xl border-2 bg-card/50 backdrop-blur-sm hover:bg-card/80 hover:border-primary/50 transition-all duration-300 flex flex-col items-center justify-center gap-4 shadow-[0_0_15px_rgba(79,70,229,0.15)]"
               onClick={handleStartChat}
             >
               <div className="relative">
@@ -212,7 +284,7 @@ export default function Home() {
                 <MessageSquareIcon size={48} className="text-primary" />
               </div>
               <div className="text-lg font-semibold">Chat with Nura</div>
-              <p className="text-sm text-muted-foreground max-w-xs">
+              <p className="text-sm text-muted-foreground max-w-[80%] text-center px-4 whitespace-normal break-words leading-relaxed">
                 Send messages and photos to Nura for a text-based conversation
               </p>
             </Button>
