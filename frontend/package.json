@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.5.1",
+    "@google/generative-ai": "^0.24.1",
     "@huggingface/inference": "^3.12.1",
     "@langchain/openai": "^0.5.10",
     "@notionhq/client": "^3.0.1",

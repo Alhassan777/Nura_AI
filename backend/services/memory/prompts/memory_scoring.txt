@@ -1,0 +1,95 @@
+Analyze this memory from a therapeutic conversation to determine its significance and value for future support.
+
+CONTEXT: This is from a mental health conversation where the user is seeking emotional support and therapeutic guidance.
+
+Memory content: {content}
+
+ANALYSIS APPROACH:
+Instead of numeric scores, evaluate the HUMAN SIGNIFICANCE of this memory. Consider what this moment means to the person sharing it.
+
+SIGNIFICANCE CATEGORIES:
+
+**LIFE-CHANGING MOMENTS** - Major events that shape identity and future
+- Educational achievements (getting into college, graduating, failing/passing important exams)
+- Career milestones (job offers, promotions, career changes, losing jobs)
+- Relationship changes (engagements, breakups, marriages, divorces, meeting important people)
+- Health events (diagnoses, recoveries, medical procedures, mental health breakthroughs)
+- Family events (births, deaths, major conflicts, reconciliations)
+- Personal achievements (overcoming fears, reaching goals, personal records)
+
+**EMOTIONAL INSIGHTS** - Moments of self-discovery and understanding
+- Realizations about patterns in behavior or thinking
+- Understanding triggers or coping mechanisms
+- Identifying personal values or boundaries
+- Recognizing growth or change in perspective
+- Moments of clarity about relationships or life direction
+
+**THERAPEUTIC FOUNDATIONS** - Information essential for ongoing support
+- Mental health history and current conditions
+- Trauma experiences and their impacts
+- Coping strategies that work or don't work
+- Support systems and relationships
+- Therapy goals and progress markers
+- Medication experiences and effects
+
+**MEANINGFUL CONNECTIONS** - Personal anchors and emotional touchstones
+- Cultural, spiritual, or philosophical beliefs
+- Creative expressions that resonate (art, music, books, movies)
+- Places, objects, or experiences with deep personal meaning
+- Metaphors or symbols the person uses to describe their experience
+- Memories that represent important emotions or states
+
+**ROUTINE MOMENTS** - Daily experiences with limited long-term significance
+- Weather, meals, basic activities unless emotionally significant
+- Technical issues or logistical details
+- Small talk or casual conversation
+- Temporary mood fluctuations without deeper meaning
+
+RESPONSE FORMAT:
+You must respond ONLY with a valid JSON object. Do not include any explanatory text, markdown formatting, or conversational responses. Return exactly this JSON structure:
+{{
+  "significance_category": "life_changing|emotional_insight|therapeutic_foundation|meaningful_connection|routine_moment",
+  "significance_level": "critical|high|moderate|low|minimal",
+  "key_elements": [
+    "list of the most important aspects of this memory"
+  ],
+  "therapeutic_value": {{
+    "future_reference": "How this could be valuable in future conversations",
+    "emotional_context": "What emotions or states this represents",
+    "personal_meaning": "What this likely means to the person"
+  }},
+  "storage_recommendation": "definitely_save|probably_save|user_choice|probably_skip|definitely_skip",
+  "reasoning": "Clear explanation of why this memory is or isn't significant"
+}}
+
+EXAMPLES:
+
+**CRITICAL SIGNIFICANCE:**
+"I got into Harvard today, my dream college"
+- Category: life_changing
+- Level: critical
+- Reasoning: Major educational achievement that represents years of work, future opportunities, and personal validation
+
+**HIGH SIGNIFICANCE:**
+"I realized I always get anxious when my mom calls because she criticizes everything I do"
+- Category: emotional_insight
+- Level: high  
+- Reasoning: Important pattern recognition that could inform therapeutic work and relationship boundaries
+
+**MODERATE SIGNIFICANCE:**
+"I tried meditation for the first time and it actually helped calm my racing thoughts"
+- Category: therapeutic_foundation
+- Level: moderate
+- Reasoning: Discovery of a potentially useful coping strategy worth remembering and building on
+
+**LOW SIGNIFICANCE:**
+"I had coffee this morning and it was good"
+- Category: routine_moment
+- Level: minimal
+- Reasoning: Daily activity with no apparent emotional significance or therapeutic relevance
+
+REMEMBER: 
+- A single moment can change a life - don't underestimate "one-time events"
+- Emotional significance matters more than frequency
+- The person's own emphasis and emotion should guide your assessment
+- When in doubt, err on the side of preserving meaningful human experiences 

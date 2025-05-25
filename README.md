@@ -1,144 +1,254 @@
-# Nura - Mental Health Care Assistant
+# Nura - Mental Health AI Assistant
 
-Nura is a mental health support assistant that provides emotional reflection sessions using the power of voice AI through Vapi.ai. The application helps users process their emotions, generates visual representations of their emotional state, and provides personalized action plans.
+A comprehensive mental health AI assistant with separated frontend and backend architecture for optimal development and deployment.
 
-## Features
+## 🏗️ Architecture
 
-- **Voice Conversations**: Talk naturally with Nura using Vapi.ai's voice assistant technology
-- **Emotional Processing**: Nura captures emotional metadata during the conversation
-- **Visualization**: Generates artistic representations of your emotional state using Hugging Face's FLUX image model
-- **Action Plans**: Provides personalized next steps based on your emotional reflection
-- **Dashboard**: View your call history and explore past emotional visualizations
-- **Notion Integration**: Save session summaries directly to Notion for future reference
+This project is now separated into two main components:
 
-## Technologies Used
+### Frontend (`/frontend`)
 
-- **Next.js**: React framework for the web application
-- **Vapi.ai**: Voice AI platform for natural conversations
-- **LangChain**: Orchestration of language models and processing
-- **OpenAI**: GPT-4o for processing emotional data and generating action plans
-- **Hugging Face**: FLUX image model for emotional visualizations
-- **Notion**: API integration for saving session summaries
+- **Technology**: Next.js 14 with TypeScript
+- **Port**: 3000
+- **Features**:
+  - Modern React-based chat interface
+  - Real-time health monitoring
+  - Crisis detection indicators
+  - Memory storage status
+  - Test scenarios and system information
 
-## Setup
+### Backend (`/backend`)
 
-### Prerequisites
+- **Technology**: Python FastAPI with AI/ML services
+- **Port**: 8000
+- **Features**:
+  - Mental health assistant with Gemini AI
+  - Vector-based memory storage (Pinecone)
+  - Crisis detection and scoring
+  - Comprehensive conversation analysis
+  - Redis caching and session management
 
-- Node.js 18+ installed
-- API keys for:
-  - Vapi.ai (public key, API key, and assistant ID)
-  - OpenAI
-  - Hugging Face
-  - Notion (API key and database ID)
+## 🚀 Quick Start
 
-### Installation
+### Option 1: Start Both Services Together
 
-1. Clone the repository
-   ```
-   git clone https://github.com/yourusername/nura-app.git
-   cd nura-app
-   ```
+```bash
+./start-both.sh
+```
 
-2. Install dependencies
-   ```
-   npm install
-   ```
+### Option 2: Start Services Separately
 
-3. Copy the `env.example` file to `.env.local` and fill in your API keys:
-   ```
-   cp env.example .env.local
-   ```
+#### Backend Only
 
-4. Update the `.env.local` file with your API keys and credentials:
-   ```
-   # Vapi.ai Configuration
-   VAPI_API_KEY=your_vapi_api_key_here
-   NEXT_PUBLIC_VAPI_PUBLIC_KEY=your_vapi_public_key_here
-   NEXT_PUBLIC_VAPI_DEFAULT_ASSISTANT_ID=your_default_assistant_id_here
-   
-   # OpenAI API key for processing service
-   NEXT_PUBLIC_OPENAI_API_KEY=your_openai_api_key_here
-   
-   # Hugging Face API key for image generation
-   NEXT_PUBLIC_HF_API_KEY=your_huggingface_api_key_here
-   
-   # Notion integration for saving summaries
-   NEXT_PUBLIC_NOTION_API_KEY=your_notion_api_key_here
-   NEXT_PUBLIC_NOTION_DATABASE_ID=your_notion_database_id_here
-   
-   # Default user ID and app URL
-   DEFAULT_USER_ID=demo-user-123
-   APP_BASE_URL=http://localhost:3000
-   ```
+```bash
+cd backend
+./start-backend.sh
+```
 
-5. Run the development server
-   ```
-   npm run dev
-   ```
+#### Frontend Only
 
-6. Open [http://localhost:3000](http://localhost:3000) in your browser
+```bash
+cd frontend
+./start-frontend.sh
+```
 
-## Using the Dashboard
+## 📋 Prerequisites
 
-Nura includes a call history dashboard that allows you to:
+### Backend Requirements
 
-1. View all past reflection sessions
-2. See detailed call summaries and emotional metadata
-3. Explore generated visualizations based on your emotional state
-4. Export call data for your records
+- Python 3.8+
+- Redis server
+- Google AI API key
+- Pinecone account (optional)
 
-To access the dashboard:
-- Navigate to `/dashboard` in your browser
-- For testing purposes, you can import demo data by clicking "Import Demo Data" button
-- Click on any call in the history to see its details
+### Frontend Requirements
 
-## Vapi.ai Assistant Configuration
+- Node.js 18+
+- npm or yarn
 
-To set up your Vapi.ai assistant:
+## ⚙️ Configuration
 
-1. Create an account at [Vapi.ai](https://vapi.ai)
-2. Create a new assistant with the instructions provided in the project documentation
-3. Configure the assistant to use GPT-4o as the model
-4. Set up function calling to capture emotional metadata in the format described in the `EmotionalMetadata` interface
-5. Configure webhooks to point to your app's webhook endpoint: `https://your-domain.com/api/vapi/webhooks`
+### Backend Configuration (`backend/.env`)
 
-## Notion Setup
+```bash
+# Google AI Configuration
+GOOGLE_API_KEY=your-google-api-key-here
+GOOGLE_CLOUD_PROJECT=your-google-cloud-project
 
-1. Create a new database in Notion
-2. Set up columns for:
-   - Title (title)
-   - Date (date)
-   - Summary (text)
-   - Emotional Data (JSON)
-   - Image URL (URL)
-3. Get your database ID from the URL
-4. Create an integration at [Notion Developers](https://developers.notion.com) and connect it to your database
+# Model Configuration
+GEMINI_MODEL=gemini-pro
+GEMINI_EMBEDDING_MODEL=gemini-pro
 
-## Learn More
+# Memory Service Configuration
+MEMORY_SERVICE_PORT=8000
 
-To learn more about Next.js and the other technologies used:
+# Vector Database Configuration
+PINECONE_API_KEY=your-pinecone-api-key
+PINECONE_INDEX_NAME=nura-memory
 
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Vapi.ai Documentation](https://docs.vapi.ai)
-- [LangChain Documentation](https://js.langchain.com/docs)
-- [Notion API Documentation](https://developers.notion.com)
-- [Hugging Face FLUX.1 Model](https://huggingface.co/spaces/black-forest-labs/FLUX.1-dev)
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+```
 
-## Authentication (Future Implementation)
+### Frontend Configuration (`frontend/.env.local`)
 
-The app is currently set up for demo usage with a static user ID. For a production deployment, you would:
+```bash
+# Backend URL
+BACKEND_URL=http://localhost:8000
 
-1. Uncomment and configure the Auth0 environment variables in `.env.local`
-2. Update the Auth0 integration in `/src/app/api/auth/[...auth0]/route.ts`
-3. Use the Auth0 UserProvider instead of the custom Provider in `/src/app/providers.tsx`
+# Auth0 Configuration (optional)
+AUTH0_SECRET=your-auth0-secret-here
+AUTH0_BASE_URL=http://localhost:3000
+AUTH0_ISSUER_BASE_URL=https://your-domain.auth0.com
+```
 
-## License
+## 🛠️ Development Setup
 
-This project is licensed under the MIT License.
+### Backend Setup
 
-## Acknowledgements
+```bash
+cd backend
 
-- [Vapi.ai](https://vapi.ai) for the voice AI platform
-- [LangChain](https://langchain.com) for the LLM orchestration framework
-- [Hugging Face](https://huggingface.co) for the FLUX image model
-- [Notion](https://developers.notion.com) for the API integration
+# Create virtual environment
+python -m venv myenv
+source myenv/bin/activate  # On Windows: myenv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy environment template
+cp env.example .env
+# Edit .env with your configuration
+
+# Start Redis
+redis-server --daemonize yes
+
+# Start backend
+./start-backend.sh
+```
+
+### Frontend Setup
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Copy environment template
+cp .env.local.example .env.local
+# Edit .env.local with your configuration
+
+# Start frontend
+./start-frontend.sh
+```
+
+## 🧪 Testing
+
+### Test Chat Interface
+
+Visit `http://localhost:3000/test-chat` for a comprehensive testing interface that includes:
+
+- Real-time chat with the AI assistant
+- Health status monitoring
+- Crisis level indicators
+- Memory storage confirmation
+- Configuration warnings
+- Suggested test scenarios
+
+### API Testing
+
+- Backend API docs: `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/health`
+- Frontend API: `http://localhost:3000/api/chat`
+
+## 📁 Project Structure
+
+```
+nura-app/
+├── frontend/                 # Next.js Frontend
+│   ├── src/
+│   │   ├── app/             # Next.js App Router
+│   │   ├── components/      # React Components
+│   │   ├── lib/            # Utilities
+│   │   └── utils/          # Helper functions
+│   ├── public/             # Static assets
+│   ├── package.json        # Frontend dependencies
+│   ├── .env.local          # Frontend environment
+│   └── start-frontend.sh   # Frontend startup script
+│
+├── backend/                 # Python Backend
+│   ├── services/           # Core services
+│   │   └── memory/         # Memory service
+│   │       ├── api.py      # FastAPI application
+│   │       ├── assistant/  # AI assistant
+│   │       ├── storage/    # Vector storage
+│   │       ├── scoring/    # Memory scoring
+│   │       └── prompts/    # AI prompts
+│   ├── data/              # Data storage
+│   ├── logs/              # Application logs
+│   ├── myenv/             # Python virtual environment
+│   ├── requirements.txt   # Python dependencies
+│   ├── .env              # Backend environment
+│   └── start-backend.sh  # Backend startup script
+│
+├── start-both.sh          # Start both services
+└── README.md             # This file
+```
+
+## 🔧 Benefits of Separation
+
+### Development Benefits
+
+- **Independent Development**: Frontend and backend teams can work independently
+- **Faster Compilation**: Frontend builds don't wait for Python dependencies
+- **Technology Flexibility**: Each service can use optimal technologies
+- **Easier Testing**: Services can be tested in isolation
+
+### Deployment Benefits
+
+- **Scalability**: Services can be scaled independently
+- **Container-Ready**: Each service can be containerized separately
+- **Cloud Deployment**: Can deploy to different cloud services
+- **Load Balancing**: Frontend and backend can have different load balancing strategies
+
+### Maintenance Benefits
+
+- **Clear Separation of Concerns**: Frontend handles UI, backend handles AI/ML
+- **Independent Updates**: Services can be updated without affecting each other
+- **Easier Debugging**: Issues can be isolated to specific services
+- **Better Resource Management**: Each service can have optimized resource allocation
+
+## 🚀 Production Deployment
+
+### Docker Deployment (Recommended)
+
+```bash
+# Build and run with Docker Compose
+docker-compose up --build
+```
+
+### Manual Deployment
+
+1. Deploy backend to a Python hosting service (e.g., Railway, Heroku, AWS)
+2. Deploy frontend to a static hosting service (e.g., Vercel, Netlify)
+3. Update `BACKEND_URL` in frontend environment to point to deployed backend
+
+## 📚 Documentation
+
+- [Memory Setup Guide](backend/MEMORY_SETUP_GUIDE.md)
+- [Vector Database Setup](backend/VECTOR_DB_SETUP_GUIDE.md)
+- [Pinecone Setup Guide](backend/PINECONE_SETUP_GUIDE.md)
+- [Testing Guide](backend/README_TESTING.md)
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes in appropriate frontend or backend directory
+4. Test both services independently
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
