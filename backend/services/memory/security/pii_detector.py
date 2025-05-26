@@ -57,7 +57,8 @@ class PIIDetector:
             },
             "FAMILY_MEMBER": {
                 "patterns": [
-                    r"\b(?i)(my|his|her)\s+(mom|mother|dad|father|parent|son|daughter|child|kid|sister|brother|sibling|wife|husband|spouse|partner|boyfriend|girlfriend)\s+([A-Z][a-z]+)\b"
+                    r"\b(?i)(my|his|her)\s+(mom|mother|dad|father|parent|son|daughter|child|kid|sister|brother|sibling|wife|husband|spouse|partner|boyfriend|girlfriend)\s+(is\s+named\s+|is\s+called\s+|named\s+)([A-Z][a-z]+)\b",
+                    r"\b(?i)(my|his|her)\s+(mom|mother|dad|father|parent|son|daughter|child|kid|sister|brother|sibling|wife|husband|spouse|partner|boyfriend|girlfriend)\s+([A-Z][a-z]+)\s+(said|told|thinks|believes|works|lives)\b",
                 ],
                 "risk_level": "high",
                 "category": "personal_identity",
@@ -158,6 +159,44 @@ class PIIDetector:
                 )
                 self.analyzer.registry.add_recognizer(recognizer)
 
+    def _create_detected_item(
+        self,
+        entity_type: str,
+        text: str,
+        start: int,
+        end: int,
+        confidence: float,
+        risk_level: str = None,
+        category: str = None,
+        description: str = None,
+    ) -> Dict[str, Any]:
+        """Create a standardized detected item dictionary."""
+        # Get definition info if not provided
+        if risk_level is None or category is None or description is None:
+            definition = self.pii_definitions.get(
+                entity_type,
+                {
+                    "risk_level": "medium",
+                    "category": "other",
+                    "description": entity_type.lower().replace("_", " "),
+                },
+            )
+            risk_level = risk_level or definition["risk_level"]
+            category = category or definition["category"]
+            description = description or definition["description"]
+
+        return {
+            "id": f"{entity_type}_{start}_{end}",
+            "text": text,
+            "type": entity_type,
+            "start": start,
+            "end": end,
+            "confidence": float(confidence),  # Convert numpy float to Python float
+            "risk_level": risk_level,
+            "category": category,
+            "description": description,
+        }
+
     async def detect_pii(self, memory: MemoryItem) -> Dict[str, Any]:
         """Detect PII in memory content and return detailed results."""
         # Get Presidio results
@@ -174,46 +213,29 @@ class PIIDetector:
             entity_type = result.entity_type
             detected_text = memory.content[result.start : result.end]
 
-            # Get definition info
-            definition = self.pii_definitions.get(
-                entity_type,
-                {
-                    "risk_level": "medium",
-                    "category": "other",
-                    "description": entity_type.lower().replace("_", " "),
-                },
+            detected_item = self._create_detected_item(
+                entity_type=entity_type,
+                text=detected_text,
+                start=result.start,
+                end=result.end,
+                confidence=result.score,
             )
-
-            detected_items.append(
-                {
-                    "id": f"{entity_type}_{result.start}_{result.end}",
-                    "text": detected_text,
-                    "type": entity_type,
-                    "start": result.start,
-                    "end": result.end,
-                    "confidence": result.score,
-                    "risk_level": definition["risk_level"],
-                    "category": definition["category"],
-                    "description": definition["description"],
-                }
-            )
+            detected_items.append(detected_item)
 
         # Add Hugging Face results (mainly for person names)
         for result in ner_results:
             if result["entity_group"] == "PER":  # Person names
-                detected_items.append(
-                    {
-                        "id": f"PERSON_{result['start']}_{result['end']}",
-                        "text": result["word"],
-                        "type": "PERSON",
-                        "start": result["start"],
-                        "end": result["end"],
-                        "confidence": result["score"],
-                        "risk_level": "high",
-                        "category": "personal_identity",
-                        "description": "Person names",
-                    }
+                detected_item = self._create_detected_item(
+                    entity_type="PERSON",
+                    text=result["word"],
+                    start=result["start"],
+                    end=result["end"],
+                    confidence=result["score"],
+                    risk_level="high",
+                    category="personal_identity",
+                    description="Person names",
                 )
+                detected_items.append(detected_item)
 
         return {
             "has_pii": len(detected_items) > 0,

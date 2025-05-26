@@ -1,95 +1,178 @@
-Analyze this memory from a therapeutic conversation to determine its significance and value for future support.
+Analyze this memory from a therapeutic conversation and EXTRACT ALL MEANINGFUL COMPONENTS that should be stored separately.
 
-CONTEXT: This is from a mental health conversation where the user is seeking emotional support and therapeutic guidance.
+CONTEXT: A single message may contain multiple types of memories that should be stored in different categories:
+- **TEMPORARY STATES**: Current feelings, moods, or situations (short-term context only)
+- **LASTING MEMORIES**: Significant events, insights, or foundations (long-term storage)
+- **MEANINGFUL CONNECTIONS**: Emotional anchors, places, media, symbols (emotional anchors)
+
+IMPORTANT: Break down the message and identify ALL components that fit these categories. Each component should be extracted and classified separately.
 
 Memory content: {content}
 
-ANALYSIS APPROACH:
-Instead of numeric scores, evaluate the HUMAN SIGNIFICANCE of this memory. Consider what this moment means to the person sharing it.
+CRITICAL DISTINCTION:
+**TEMPORARY STATES** (Short-term context only):
+- Current emotional states: "I'm feeling sad", "I'm anxious today", "I'm stressed"
+- Temporary situations: "I had a bad day", "I'm tired", "I can't sleep tonight"
+- Momentary thoughts: "I'm worried about tomorrow", "I feel overwhelmed right now"
+- Daily activities: "I went to work", "I had coffee", "I watched TV"
+- Current symptoms: "I have a headache", "I feel nauseous", "I'm having trouble concentrating today"
 
-SIGNIFICANCE CATEGORIES:
+**LASTING MEMORIES** (Long-term storage):
 
-**LIFE-CHANGING MOMENTS** - Major events that shape identity and future
-- Educational achievements (getting into college, graduating, failing/passing important exams)
-- Career milestones (job offers, promotions, career changes, losing jobs)
-- Relationship changes (engagements, breakups, marriages, divorces, meeting important people)
-- Health events (diagnoses, recoveries, medical procedures, mental health breakthroughs)
-- Family events (births, deaths, major conflicts, reconciliations)
-- Personal achievements (overcoming fears, reaching goals, personal records)
+**LIFE-CHANGING EVENTS** - Major milestones that shape identity
+- Educational achievements: "I got into Harvard", "I graduated medical school", "I failed my bar exam"
+- Career milestones: "I got promoted to manager", "I was fired from my job", "I started my own business"
+- Relationship events: "I got engaged", "My partner left me", "I met my best friend"
+- Health events: "I was diagnosed with depression", "I had surgery", "I started therapy"
+- Family events: "My father passed away", "My sister had a baby", "My parents divorced"
+- Personal achievements: "I ran my first marathon", "I overcame my fear of flying", "I published my book"
 
-**EMOTIONAL INSIGHTS** - Moments of self-discovery and understanding
-- Realizations about patterns in behavior or thinking
-- Understanding triggers or coping mechanisms
-- Identifying personal values or boundaries
-- Recognizing growth or change in perspective
-- Moments of clarity about relationships or life direction
+**EMOTIONAL INSIGHTS** - Self-discoveries that change understanding
+- Pattern recognition: "I realized I get anxious when my mom calls because she always criticizes me"
+- Trigger identification: "I discovered that crowded places trigger my panic attacks"
+- Coping discoveries: "I learned that journaling helps me process grief"
+- Boundary realizations: "I understood that I need to say no to protect my mental health"
+- Growth moments: "I recognized that I've been people-pleasing my whole life"
 
-**THERAPEUTIC FOUNDATIONS** - Information essential for ongoing support
-- Mental health history and current conditions
-- Trauma experiences and their impacts
-- Coping strategies that work or don't work
-- Support systems and relationships
-- Therapy goals and progress markers
-- Medication experiences and effects
+**THERAPEUTIC FOUNDATIONS** - Essential information for ongoing care
+- Mental health history: "I was hospitalized for depression in 2019"
+- Trauma experiences: "I was in a car accident that gave me PTSD"
+- Treatment history: "Cognitive behavioral therapy helped me with anxiety"
+- Medication experiences: "Sertraline worked well for me but caused weight gain"
+- Support systems: "My therapist Dr. Smith has been helping me for 3 years"
 
-**MEANINGFUL CONNECTIONS** - Personal anchors and emotional touchstones
-- Cultural, spiritual, or philosophical beliefs
-- Creative expressions that resonate (art, music, books, movies)
-- Places, objects, or experiences with deep personal meaning
-- Metaphors or symbols the person uses to describe their experience
-- Memories that represent important emotions or states
+**MEANINGFUL CONNECTIONS** - Deep personal anchors and touchstones
+- Core beliefs: "My faith in Buddhism guides me through difficult times"
+- Emotional anchors: "My grandmother's garden represents peace and safety to me"
+- Creative connections: "Playing piano is how I express emotions I can't speak"
+- Symbolic meanings: "The ocean reminds me that problems are temporary like waves"
+- Personal metaphors: "I think of my depression as a heavy coat I can take off"
+- Sacred places: "The library where I studied is my sanctuary"
+- Meaningful objects: "My father's watch connects me to his memory"
+- Songs/Music: "That song reminds me of pursuit of happiness", "This melody always calms me down"
+- Movies/Scenes: "That scene from the movie always makes me feel hopeful", "It reminds me of that character's journey"
+- Quotes/Literature: "That quote captures exactly how I feel", "This book passage speaks to my soul"
+- Fictional characters: "I identify with that character's struggle", "They represent who I want to become"
+- Visual imagery: "Foggy roads remind me of mystery and possibility", "Sunlight through leaves makes me feel peaceful"
+- Games/Toys: "That video game taught me about perseverance", "My childhood toy represents safety and comfort"
+- Cultural references: "It reminds me of pursuit of happiness", "That story resonates with my experience"
 
-**ROUTINE MOMENTS** - Daily experiences with limited long-term significance
-- Weather, meals, basic activities unless emotionally significant
-- Technical issues or logistical details
-- Small talk or casual conversation
-- Temporary mood fluctuations without deeper meaning
+**SPECIAL ATTENTION TO PLACES**: When extracting place-based emotional anchors, ALWAYS include the specific place name in the content. Places that evoke strong emotions should be captured with their full context:
+- Home countries: "Egypt represents home and family warmth to me"
+- Childhood locations: "My hometown of Tokyo holds memories of safety and belonging"
+- Meaningful destinations: "Paris will always remind me of my first solo adventure"
+- Family gathering places: "My grandmother's house in Mexico represents unconditional love"
 
 RESPONSE FORMAT:
-You must respond ONLY with a valid JSON object. Do not include any explanatory text, markdown formatting, or conversational responses. Return exactly this JSON structure:
+You must respond ONLY with a valid JSON object containing an array of components. Extract ALL meaningful components from the message:
+
 {{
-  "significance_category": "life_changing|emotional_insight|therapeutic_foundation|meaningful_connection|routine_moment",
+  "components": [
+    {{
+      "content": "Extracted text for this specific component",
+      "memory_type": "temporary_state|lasting_memory|meaningful_connection",
+      "significance_category": "life_changing|emotional_insight|therapeutic_foundation|routine_moment",
   "significance_level": "critical|high|moderate|low|minimal",
-  "key_elements": [
-    "list of the most important aspects of this memory"
+      "storage_recommendation": "definitely_save|probably_save|user_choice|probably_skip|definitely_skip",
+      "reasoning": "Why this component should be stored this way",
+      
+      // For meaningful_connection only:
+      "connection_type": "belief|anchor|creative|symbolic|metaphor|place|object|music|movie|quote|character|visual|game|toy|cultural",
+      "emotional_significance": "What this represents emotionally",
+      "personal_meaning": "Deep personal meaning to the individual", 
+      "anchor_strength": "strong|moderate|developing",
+      "display_category": "emotional_anchor"
+    }}
   ],
-  "therapeutic_value": {{
-    "future_reference": "How this could be valuable in future conversations",
-    "emotional_context": "What emotions or states this represents",
-    "personal_meaning": "What this likely means to the person"
-  }},
-  "storage_recommendation": "definitely_save|probably_save|user_choice|probably_skip|definitely_skip",
-  "reasoning": "Clear explanation of why this memory is or isn't significant"
+  "original_message": "{content}",
+  "total_components": "Number of components extracted"
 }}
 
 EXAMPLES:
 
-**CRITICAL SIGNIFICANCE:**
-"I got into Harvard today, my dream college"
-- Category: life_changing
-- Level: critical
-- Reasoning: Major educational achievement that represents years of work, future opportunities, and personal validation
+**SIMPLE MESSAGE (Single component):**
+"I am feeling sad rn"
+{{
+  "components": [
+    {{
+      "content": "I am feeling sad rn",
+      "memory_type": "temporary_state",
+      "significance_category": "routine_moment", 
+      "significance_level": "minimal",
+      "storage_recommendation": "definitely_skip",
+      "reasoning": "Current emotional state, useful for immediate context but not a lasting memory"
+    }}
+  ],
+  "original_message": "I am feeling sad rn",
+  "total_components": 1
+}}
 
-**HIGH SIGNIFICANCE:**
-"I realized I always get anxious when my mom calls because she criticizes everything I do"
-- Category: emotional_insight
-- Level: high  
-- Reasoning: Important pattern recognition that could inform therapeutic work and relationship boundaries
+**COMPLEX MESSAGE (Multiple components):**
+"I felt happy today because I met my girlfriend for the first time in Jeju"
+{{
+  "components": [
+    {{
+      "content": "I felt happy today",
+      "memory_type": "temporary_state",
+      "significance_category": "routine_moment",
+      "significance_level": "minimal", 
+      "storage_recommendation": "definitely_skip",
+      "reasoning": "Current emotional state, temporary feeling"
+    }},
+    {{
+      "content": "I met my girlfriend for the first time",
+      "memory_type": "lasting_memory",
+      "significance_category": "life_changing",
+      "significance_level": "critical",
+      "storage_recommendation": "definitely_save", 
+      "reasoning": "Significant relationship milestone that will be remembered long-term"
+    }},
+    {{
+      "content": "Jeju represents the place where I first met my girlfriend",
+      "memory_type": "meaningful_connection",
+      "connection_type": "place",
+      "emotional_significance": "love, new beginnings, romance",
+      "personal_meaning": "The location where a significant relationship began, forever tied to feelings of love and new beginnings",
+      "anchor_strength": "strong",
+      "storage_recommendation": "definitely_save",
+      "display_category": "emotional_anchor",
+      "reasoning": "Geographic location now holds deep emotional significance as the birthplace of an important relationship"
+    }}
+  ],
+  "original_message": "I felt happy today because I met my girlfriend for the first time in Jeju",
+  "total_components": 3
+}}
 
-**MODERATE SIGNIFICANCE:**
-"I tried meditation for the first time and it actually helped calm my racing thoughts"
-- Category: therapeutic_foundation
-- Level: moderate
-- Reasoning: Discovery of a potentially useful coping strategy worth remembering and building on
-
-**LOW SIGNIFICANCE:**
-"I had coffee this morning and it was good"
-- Category: routine_moment
-- Level: minimal
-- Reasoning: Daily activity with no apparent emotional significance or therapeutic relevance
+**PLACE-BASED EMOTIONAL ANCHOR EXAMPLE:**
+"Today, I went to Egypt, my home country where I feel the warmth of mother love because my family is there"
+{{
+  "components": [
+    {{
+      "content": "Today, I went to Egypt",
+      "memory_type": "temporary_state",
+      "significance_category": "routine_moment",
+      "significance_level": "minimal",
+      "storage_recommendation": "definitely_skip",
+      "reasoning": "Current travel activity, temporary situation"
+    }},
+    {{
+      "content": "Egypt represents my home country where I feel the warmth of mother love and family connection",
+      "memory_type": "meaningful_connection",
+      "connection_type": "place",
+      "emotional_significance": "home, family love, belonging, maternal warmth",
+      "personal_meaning": "Egypt is not just a country but the embodiment of family love and the feeling of being truly home where unconditional love exists",
+      "anchor_strength": "strong",
+      "storage_recommendation": "definitely_save",
+      "display_category": "emotional_anchor",
+      "reasoning": "Home country holds deep emotional significance as the source of family love and belonging"
+    }}
+  ],
+  "original_message": "Today, I went to Egypt, my home country where I feel the warmth of mother love because my family is there",
+  "total_components": 2
+}}
 
 REMEMBER: 
-- A single moment can change a life - don't underestimate "one-time events"
-- Emotional significance matters more than frequency
-- The person's own emphasis and emotion should guide your assessment
-- When in doubt, err on the side of preserving meaningful human experiences 
+- Temporary feelings/states = Short-term context only
+- Lasting events/insights = Long-term memory
+- Meaningful connections = Special emotional anchors for separate display
+- When in doubt about temporary vs lasting, choose temporary (err on the side of NOT storing long-term) 

@@ -40,20 +40,18 @@ class Config:
     # Redis configuration
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-    # Chroma configuration
+    # Chroma configuration (fallback option)
     CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma")
 
-    # Google Cloud configuration
-    GOOGLE_CLOUD_PROJECT: str = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    # Google API configuration (for embeddings)
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
-    USE_VERTEX_AI: bool = os.getenv("USE_VERTEX_AI", "false").lower() == "true"
 
     # Pinecone configuration
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
     PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "nura-memories")
     USE_PINECONE: bool = os.getenv("USE_PINECONE", "false").lower() == "true"
 
-    # Vector database selection (pinecone, vertex, or chroma)
+    # Vector database selection (pinecone or chroma)
     VECTOR_DB_TYPE: str = os.getenv("VECTOR_DB_TYPE", "chroma").lower()
 
     # Model configuration
@@ -158,8 +156,6 @@ class Config:
         # Add vector database specific requirements
         if cls.VECTOR_DB_TYPE == "pinecone" or cls.USE_PINECONE:
             required_vars.append("PINECONE_API_KEY")
-        elif cls.VECTOR_DB_TYPE == "vertex" or cls.USE_VERTEX_AI:
-            required_vars.append("GOOGLE_CLOUD_PROJECT")
 
         missing_vars = [var for var in required_vars if not getattr(cls, var)]
 
@@ -181,7 +177,6 @@ Current values:
   - GOOGLE_API_KEY: {'[SET]' if cls.GOOGLE_API_KEY else '[NOT SET]'}
   - VECTOR_DB_TYPE: {cls.VECTOR_DB_TYPE}
   - PINECONE_API_KEY: {'[SET]' if cls.PINECONE_API_KEY else '[NOT SET]'}
-  - GOOGLE_CLOUD_PROJECT: {'[SET]' if cls.GOOGLE_CLOUD_PROJECT else '[NOT SET]'}
 
 The Memory Service will not function properly without these configurations.
 """
@@ -209,13 +204,9 @@ The Memory Service will not function properly without these configurations.
 
         # Vector database warnings
         if cls.VECTOR_DB_TYPE == "chroma":
-            warnings.append(
-                "Using ChromaDB (local) - consider Pinecone or Vertex AI for production"
-            )
+            warnings.append("Using ChromaDB (local) - consider Pinecone for production")
         elif cls.VECTOR_DB_TYPE == "pinecone":
             warnings.append("Using Pinecone vector database")
-        elif cls.VECTOR_DB_TYPE == "vertex":
-            warnings.append("Using Google Vertex AI vector database")
 
         if warnings:
             warning_msg = f"""

@@ -103,6 +103,26 @@ class RedisStore:
             )
             return False
 
+    async def update_memory(self, user_id: str, memory: MemoryItem) -> bool:
+        """Update an existing memory or add it if it doesn't exist."""
+        key = f"user:{user_id}:memories"
+
+        try:
+            # First, try to delete the existing memory
+            await self.delete_memory(user_id, memory.id)
+
+            # Then add the updated memory
+            await self.add_memory(user_id, memory)
+
+            logger.info(f"Updated memory {memory.id} for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to update memory {memory.id} for user {user_id}: {str(e)}"
+            )
+            return False
+
     async def clear_memories(self, user_id: str) -> None:
         """Clear all memories for a user."""
         key = f"user:{user_id}:memories"

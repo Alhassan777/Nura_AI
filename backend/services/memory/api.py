@@ -116,6 +116,11 @@ class DualStorageMemoryResponse(BaseModel):
     pii_summary: Optional[Dict[str, Any]] = None
     score: Optional[Dict[str, Any]] = None
     reason: Optional[str] = None
+    # New fields for component extraction
+    components: Optional[List[Dict[str, Any]]] = None
+    total_components: Optional[int] = None
+    stored_components: Optional[int] = None
+    storage_summary: Optional[Dict[str, Any]] = None
     configuration_status: Optional[Dict[str, Any]] = None
 
 
@@ -190,6 +195,7 @@ async def health_check():
         "message": "Nura Memory Service is running",
         "configuration": config_status,
         "timestamp": str(__import__("datetime").datetime.utcnow()),
+        "version": "2025-05-26-updated",  # Added to verify server reload
     }
 
 
@@ -219,7 +225,7 @@ async def chat_with_assistant(
             user_id=user_id,
             content=request.message,
             type="user_message",
-            metadata={"source": "chat_assistant"},
+            metadata={"source": "chat_interface"},
         )
 
         # Store the assistant response in memory
@@ -228,7 +234,7 @@ async def chat_with_assistant(
             content=assistant_response["response"],
             type="assistant_response",
             metadata={
-                "source": "chat_assistant",
+                "source": "chat_interface",
                 "crisis_level": assistant_response["crisis_level"],
                 "resources_provided": assistant_response["resources_provided"],
                 "coping_strategies": assistant_response["coping_strategies"],
@@ -433,6 +439,11 @@ async def process_memory_dual_storage(
             pii_summary=result.get("pii_summary"),
             score=result.get("score"),
             reason=result.get("reason"),
+            # New component fields
+            components=result.get("components"),
+            total_components=result.get("total_components"),
+            stored_components=result.get("stored_components"),
+            storage_summary=result.get("storage_summary"),
             configuration_status=(
                 config_status if config_status["has_configuration_issues"] else None
             ),
@@ -612,6 +623,521 @@ async def apply_memory_choices(request: dict):
         return results
     except Exception as e:
         logger.error(f"Error applying memory choices for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/memory/emotional-anchors")
+async def get_emotional_anchors(user_id: str = Query(..., description="User ID")):
+    """Get emotional anchors (meaningful connections) for a user."""
+    try:
+        config_status = get_configuration_status()
+        emotional_anchors = await memory_service.get_emotional_anchors(user_id)
+
+        return {
+            "emotional_anchors": [asdict(anchor) for anchor in emotional_anchors],
+            "count": len(emotional_anchors),
+            "configuration_status": (
+                config_status if config_status["has_configuration_issues"] else None
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Error getting emotional anchors for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/memory/regular-memories")
+async def get_regular_memories(
+    user_id: str = Query(..., description="User ID"),
+    query: Optional[str] = Query(None, description="Search query for semantic search"),
+):
+    """Get regular lasting memories (excluding emotional anchors) for a user."""
+    try:
+        config_status = get_configuration_status()
+        regular_memories = await memory_service.get_regular_memories(user_id, query)
+
+        return {
+            "regular_memories": [asdict(memory) for memory in regular_memories],
+            "count": len(regular_memories),
+            "query": query,
+            "configuration_status": (
+                config_status if config_status["has_configuration_issues"] else None
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Error getting regular memories for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/memory/all-long-term")
+async def get_all_long_term_memories(user_id: str = Query(..., description="User ID")):
+    """Get all long-term memories categorized by type."""
+    try:
+        config_status = get_configuration_status()
+
+        # Get both types of memories
+        emotional_anchors = await memory_service.get_emotional_anchors(user_id)
+        regular_memories = await memory_service.get_regular_memories(user_id)
+
+        return {
+            "emotional_anchors": [asdict(anchor) for anchor in emotional_anchors],
+            "regular_memories": [asdict(memory) for memory in regular_memories],
+            "counts": {
+                "emotional_anchors": len(emotional_anchors),
+                "regular_memories": len(regular_memories),
+                "total": len(emotional_anchors) + len(regular_memories),
+            },
+            "configuration_status": (
+                config_status if config_status["has_configuration_issues"] else None
+            ),
+        }
+    except Exception as e:
+        logger.error(
+            f"Error getting all long-term memories for user {user_id}: {str(e)}"
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/memory/pending-consent")
+async def get_pending_consent_memories(
+    user_id: str = Query(..., description="User ID")
+):
+    """Get memories that are pending PII consent for long-term storage."""
+    try:
+        config_status = get_configuration_status()
+        result = await memory_service.get_pending_consent_memories(user_id)
+
+        # Add configuration status to result
+        return {
+            **result,
+            "configuration_status": (
+                config_status if config_status["has_configuration_issues"] else None
+            ),
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting pending consent memories: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PendingConsentRequest(BaseModel):
+    memory_choices: Dict[
+        str, Dict[str, Any]
+    ]  # memory_id -> {"consent": {...}, "action": "approve|deny"}
+
+
+@app.post("/memory/process-pending-consent")
+async def process_pending_consent(
+    request: PendingConsentRequest, user_id: str = Query(..., description="User ID")
+):
+    """Process pending memories with user consent decisions."""
+    try:
+        config_status = get_configuration_status()
+        result = await memory_service.process_pending_consent(
+            user_id, request.memory_choices
+        )
+
+        # Add configuration status to result
+        return {
+            **result,
+            "configuration_status": (
+                config_status if config_status["has_configuration_issues"] else None
+            ),
+        }
+
+    except Exception as e:
+        logger.error(f"Error processing pending consent: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/memory/privacy-review/{user_id}")
+async def get_memories_for_privacy_review(user_id: str):
+    """Get memories that contain PII for user privacy review."""
+    try:
+        # Get all memories with PII
+        short_term_memories = await memory_service.redis_store.get_memories(user_id)
+        long_term_memories = await memory_service.vector_store.get_memories(user_id)
+
+        memories_with_pii = []
+
+        # Check short-term memories
+        for memory in short_term_memories:
+            has_pii = memory.metadata.get("has_pii", False)
+            # Handle both boolean and string representations
+            if has_pii is True or has_pii == "True" or has_pii == "true":
+                # Skip memories that have already been processed
+                if memory.metadata.get("privacy_choice"):
+                    continue
+
+                pii_results = await memory_service.pii_detector.detect_pii(memory)
+
+                memory_info = {
+                    "id": memory.id,
+                    "content": memory.content,
+                    "type": memory.type,
+                    "storage_type": "short_term",
+                    "timestamp": (
+                        memory.timestamp.isoformat()
+                        if hasattr(memory.timestamp, "isoformat")
+                        else str(memory.timestamp)
+                    ),
+                    "memory_type": memory.metadata.get("memory_type", "unknown"),
+                    "pii_detected": pii_results["detected_items"],
+                    "pii_summary": {
+                        "types": list(
+                            set(item["type"] for item in pii_results["detected_items"])
+                        ),
+                        "high_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "high"
+                            ]
+                        ),
+                        "medium_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "medium"
+                            ]
+                        ),
+                        "low_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "low"
+                            ]
+                        ),
+                    },
+                }
+                memories_with_pii.append(memory_info)
+
+                # Check long-term memories
+        for memory in long_term_memories:
+            has_pii = memory.metadata.get("has_pii", False)
+            # Handle both boolean and string representations
+            if has_pii is True or has_pii == "True" or has_pii == "true":
+                # Skip memories that have already been processed
+                if memory.metadata.get("privacy_choice"):
+                    continue
+
+                pii_results = await memory_service.pii_detector.detect_pii(memory)
+
+                memory_info = {
+                    "id": memory.id,
+                    "content": memory.content,
+                    "type": memory.type,
+                    "storage_type": "long_term",
+                    "timestamp": (
+                        memory.timestamp.isoformat()
+                        if hasattr(memory.timestamp, "isoformat")
+                        else str(memory.timestamp)
+                    ),
+                    "memory_type": memory.metadata.get("memory_type", "unknown"),
+                    "is_emotional_anchor": memory.metadata.get("display_category")
+                    == "emotional_anchor",
+                    "pii_detected": pii_results["detected_items"],
+                    "pii_summary": {
+                        "types": list(
+                            set(item["type"] for item in pii_results["detected_items"])
+                        ),
+                        "high_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "high"
+                            ]
+                        ),
+                        "medium_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "medium"
+                            ]
+                        ),
+                        "low_risk_count": len(
+                            [
+                                item
+                                for item in pii_results["detected_items"]
+                                if item["risk_level"] == "low"
+                            ]
+                        ),
+                    },
+                }
+                memories_with_pii.append(memory_info)
+
+        return {
+            "memories_with_pii": memories_with_pii,
+            "total_count": len(memories_with_pii),
+            "privacy_options": {
+                "remove_entirely": {
+                    "label": "Remove Entirely",
+                    "description": "Delete this memory completely from all storage",
+                    "icon": "🗑️",
+                },
+                "remove_pii_only": {
+                    "label": "Remove PII Only",
+                    "description": "Keep the memory but replace sensitive information with placeholders",
+                    "icon": "🔒",
+                },
+                "keep_original": {
+                    "label": "Keep Original",
+                    "description": "Keep the memory exactly as is (for trusted therapeutic context)",
+                    "icon": "✅",
+                },
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting memories for privacy review: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/memory/apply-privacy-choices/{user_id}")
+async def apply_privacy_choices(user_id: str, choices: Dict[str, str]):
+    """Apply user privacy choices for memories with PII.
+
+    Args:
+        choices: Dict mapping memory_id to choice ("remove_entirely", "remove_pii_only", "keep_original")
+    """
+    try:
+        results = {
+            "processed": [],
+            "errors": [],
+            "summary": {
+                "removed_entirely": 0,
+                "pii_removed": 0,
+                "kept_original": 0,
+                "total_processed": 0,
+            },
+        }
+
+        for memory_id, choice in choices.items():
+            try:
+                # Find the memory in both stores
+                memory = None
+                storage_location = None
+
+                # Check short-term first
+                short_term_memories = await memory_service.redis_store.get_memories(
+                    user_id
+                )
+                for mem in short_term_memories:
+                    if mem.id == memory_id:
+                        memory = mem
+                        storage_location = "short_term"
+                        break
+
+                # Check long-term if not found
+                if not memory:
+                    long_term_memories = await memory_service.vector_store.get_memories(
+                        user_id
+                    )
+                    for mem in long_term_memories:
+                        if mem.id == memory_id:
+                            memory = mem
+                            storage_location = "long_term"
+                            break
+
+                if not memory:
+                    results["errors"].append(
+                        {"memory_id": memory_id, "error": "Memory not found"}
+                    )
+                    continue
+
+                if choice == "remove_entirely":
+                    # Delete from appropriate storage
+                    if storage_location == "short_term":
+                        await memory_service.redis_store.delete_memory(
+                            user_id, memory_id
+                        )
+                    else:
+                        await memory_service.vector_store.delete_memory(
+                            user_id, memory_id
+                        )
+
+                    results["processed"].append(
+                        {
+                            "memory_id": memory_id,
+                            "action": "removed_entirely",
+                            "original_content": memory.content,
+                        }
+                    )
+                    results["summary"]["removed_entirely"] += 1
+
+                elif choice == "remove_pii_only":
+                    try:
+                        # Detect PII and create anonymized version
+                        pii_results = await memory_service.pii_detector.detect_pii(
+                            memory
+                        )
+
+                        logger.info(
+                            f"PII detected in memory {memory_id}: {len(pii_results.get('detected_items', []))} items"
+                        )
+
+                        if not pii_results.get("detected_items"):
+                            # No PII found, just update metadata
+                            # Ensure timestamp is a datetime object
+                            timestamp = memory.timestamp
+                            if isinstance(timestamp, str):
+                                from datetime import datetime
+
+                                timestamp = datetime.fromisoformat(
+                                    timestamp.replace("Z", "+00:00")
+                                )
+
+                            updated_memory = MemoryItem(
+                                id=memory.id,
+                                userId=memory.userId,
+                                content=memory.content,
+                                type=memory.type,
+                                metadata={
+                                    **memory.metadata,
+                                    "privacy_choice": "remove_pii_only",
+                                    "pii_removed": False,
+                                    "no_pii_found": True,
+                                },
+                                timestamp=timestamp,
+                            )
+                            anonymized_content = memory.content
+                        else:
+                            # Force anonymization of all detected PII
+                            # Create consent dictionary to anonymize all items
+                            anonymize_consent = {}
+                            for item in pii_results.get("detected_items", []):
+                                anonymize_consent[item["id"]] = "anonymize"
+                                logger.info(
+                                    f"Will anonymize: {item['text']} (type: {item['type']})"
+                                )
+
+                            anonymized_content = await memory_service.pii_detector.apply_granular_consent(
+                                memory.content,
+                                storage_location,
+                                anonymize_consent,  # Use the consent dictionary
+                                pii_results,
+                            )
+
+                            logger.info(f"Original content: {memory.content}")
+                            logger.info(f"Anonymized content: {anonymized_content}")
+
+                            # Update the memory with anonymized content
+                        # Ensure timestamp is a datetime object
+                        timestamp = memory.timestamp
+                        if isinstance(timestamp, str):
+                            from datetime import datetime
+
+                            timestamp = datetime.fromisoformat(
+                                timestamp.replace("Z", "+00:00")
+                            )
+
+                        updated_memory = MemoryItem(
+                            id=memory.id,
+                            userId=memory.userId,
+                            content=anonymized_content,
+                            type=memory.type,
+                            metadata={
+                                **memory.metadata,
+                                "pii_removed": True,
+                                "original_had_pii": True,
+                                "privacy_choice": "remove_pii_only",
+                                "has_pii": False,  # Mark as no longer containing PII
+                                "original_content": memory.content,  # Store original for reference
+                            },
+                            timestamp=timestamp,
+                        )
+
+                        # Update memory instead of adding a new one
+                        if storage_location == "short_term":
+                            await memory_service.redis_store.update_memory(
+                                user_id, updated_memory
+                            )
+                        else:
+                            await memory_service.vector_store.update_memory(
+                                user_id, updated_memory
+                            )
+
+                        results["processed"].append(
+                            {
+                                "memory_id": memory_id,
+                                "action": "pii_removed",
+                                "original_content": memory.content,
+                                "anonymized_content": anonymized_content,
+                                "pii_items_removed": [
+                                    {
+                                        "text": item["text"],
+                                        "type": item["type"],
+                                        "replaced_with": f"<{item['type']}>",
+                                    }
+                                    for item in pii_results.get("detected_items", [])
+                                ],
+                                "anonymization_success": anonymized_content
+                                != memory.content,
+                            }
+                        )
+                        results["summary"]["pii_removed"] += 1
+
+                    except Exception as e:
+                        logger.error(f"Error anonymizing memory {memory_id}: {str(e)}")
+                        results["errors"].append(
+                            {
+                                "memory_id": memory_id,
+                                "error": f"Failed to anonymize PII: {str(e)}",
+                            }
+                        )
+                        continue
+
+                elif choice == "keep_original":
+                    # Just update metadata to indicate user choice
+                    # Ensure timestamp is a datetime object
+                    timestamp = memory.timestamp
+                    if isinstance(timestamp, str):
+                        from datetime import datetime
+
+                        timestamp = datetime.fromisoformat(
+                            timestamp.replace("Z", "+00:00")
+                        )
+
+                    updated_memory = MemoryItem(
+                        id=memory.id,
+                        userId=memory.userId,
+                        content=memory.content,
+                        type=memory.type,
+                        metadata={
+                            **memory.metadata,
+                            "privacy_choice": "keep_original",
+                            "user_approved_pii": True,
+                        },
+                        timestamp=timestamp,
+                    )
+
+                    # Update memory instead of adding a new one
+                    if storage_location == "short_term":
+                        await memory_service.redis_store.update_memory(
+                            user_id, updated_memory
+                        )
+                    else:
+                        await memory_service.vector_store.update_memory(
+                            user_id, updated_memory
+                        )
+
+                    results["processed"].append(
+                        {
+                            "memory_id": memory_id,
+                            "action": "kept_original",
+                            "content": memory.content,
+                        }
+                    )
+                    results["summary"]["kept_original"] += 1
+
+                results["summary"]["total_processed"] += 1
+
+            except Exception as e:
+                results["errors"].append({"memory_id": memory_id, "error": str(e)})
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Error applying privacy choices: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

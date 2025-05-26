@@ -30,8 +30,6 @@ class MemoryService:
         # Initialize vector store based on configuration
         self.vector_store = VectorStore(
             persist_directory=Config.CHROMA_PERSIST_DIR,
-            project_id=Config.GOOGLE_CLOUD_PROJECT,
-            use_vertex=Config.USE_VERTEX_AI,
             use_pinecone=Config.USE_PINECONE,
             vector_db_type=Config.VECTOR_DB_TYPE,
         )
@@ -64,25 +62,20 @@ class MemoryService:
         )
 
         # For chat messages, always store in short-term first, handle PII later
-        is_chat_message = (
-            type in ["user_message", "assistant_message", "chat"]
-            and metadata
-            and metadata.get("source") == "chat_interface"
+        is_chat_message = type in ["user_message", "assistant_message", "chat"]
+        is_assistant_message = type == "assistant_message" or (
+            metadata and metadata.get("source") == "assistant"
         )
 
-        if is_chat_message:
-            # Store immediately in short-term for chat continuity
-            # PII will be handled when user reviews memories at end of session
-            pii_results = {
-                "has_pii": False,
-                "detected_items": [],
-                "needs_consent": False,
-            }
-        else:
-            # For non-chat memories, use normal PII detection
-            pii_results = await self.pii_detector.detect_pii(base_memory)
+        # Always detect PII but handle it differently for chat vs non-chat
+        pii_results = await self.pii_detector.detect_pii(base_memory)
 
-            # If PII detected and no consent provided, return consent options
+        if is_chat_message:
+            # For chat messages: store in short-term immediately, defer PII consent for long-term
+            # This ensures chat flow is never interrupted
+            pass  # Continue processing, PII will be handled during long-term storage
+        else:
+            # For non-chat memories, require immediate PII consent if detected
             if pii_results["has_pii"] and user_consent is None:
                 consent_options = self.pii_detector.get_granular_consent_options(
                     pii_results
@@ -95,37 +88,117 @@ class MemoryService:
                     "pii_results": pii_results,
                 }
 
-        # Score memory for therapeutic value (separate from PII)
-        score = self.scorer.score_memory(base_memory)
+        # Score memory for therapeutic value (separate from PII) - now returns multiple components
+        memory_scores = self.scorer.score_memory(base_memory)
 
-        # Check if memory should be stored based on therapeutic value
-        should_store = self.scorer.should_store_memory(
-            score,
-            {
-                "relevance": self.config.relevance_threshold,
-                "stability": self.config.stability_threshold,
-                "explicitness": self.config.explicitness_threshold,
-                "min_score": self.config.min_score_threshold,
-            },
-        )
+        # Process each component separately
+        stored_components = []
+        all_results = []
 
-        # Always store chat messages for conversation continuity
-        if not should_store and not is_chat_message:
+        for score in memory_scores:
+            score_metadata = score.metadata or {}
+            component_content = score_metadata.get(
+                "component_content", base_memory.content
+            )
+            memory_type = score_metadata.get("memory_type", "temporary_state")
+            storage_recommendation = score_metadata.get(
+                "storage_recommendation", "probably_skip"
+            )
+
+            # Create a memory item for this specific component
+            component_memory = MemoryItem(
+                id=f"{base_memory.id}_component_{score_metadata.get('component_index', 0)}",
+                userId=user_id,
+                content=component_content,
+                type=type,
+                metadata={
+                    **(metadata or {}),
+                    "original_message": base_memory.content,
+                    "component_index": score_metadata.get("component_index", 0),
+                    "total_components": score_metadata.get("total_components", 1),
+                },
+                timestamp=base_memory.timestamp,
+            )
+
+            # Determine if we should store this component
+            # Only store user messages long-term if they are significant
+            should_store_somewhere = (
+                (
+                    is_chat_message and not is_assistant_message
+                )  # Store user messages in short-term
+                or (
+                    not is_assistant_message
+                    and memory_type in ["lasting_memory", "meaningful_connection"]
+                )  # Store significant user memories
+                or (
+                    not is_assistant_message
+                    and storage_recommendation in ["definitely_save", "probably_save"]
+                )  # Store recommended user memories
+            )
+
+            # If component doesn't meet storage criteria, skip it
+            if not should_store_somewhere:
+                component_result = {
+                    "component_content": component_content,
+                    "memory_type": memory_type,
+                    "storage_recommendation": storage_recommendation,
+                    "stored": False,
+                    "reason": "Component did not meet therapeutic value criteria or was assistant message",
+                    "score": {
+                        "relevance": float(score.relevance),
+                        "stability": float(score.stability),
+                        "explicitness": float(score.explicitness),
+                    },
+                }
+                all_results.append(component_result)
+                continue
+
+            # Apply dual storage strategy for this component
+            component_result = await self._store_with_dual_strategy(
+                user_id, component_memory, score, pii_results, user_consent or {}
+            )
+            component_result["component_content"] = component_content
+            component_result["memory_type"] = memory_type
+            all_results.append(component_result)
+
+            if component_result.get("stored"):
+                stored_components.append(component_result)
+
+        # Return summary of all components
+        if not stored_components:
             return {
                 "needs_consent": False,
                 "stored": False,
-                "reason": "Memory did not meet therapeutic value criteria",
-                "score": {
-                    "relevance": float(score.relevance),
-                    "stability": float(score.stability),
-                    "explicitness": float(score.explicitness),
-                },
+                "reason": "No components met storage criteria",
+                "components": all_results,
+                "total_components": len(memory_scores),
+                "stored_components": 0,
             }
 
-        # Apply dual storage strategy
-        result = await self._store_with_dual_strategy(
-            user_id, base_memory, score, pii_results, user_consent or {}
-        )
+        result = {
+            "needs_consent": False,
+            "stored": True,
+            "components": all_results,
+            "total_components": len(memory_scores),
+            "stored_components": len(stored_components),
+            "storage_summary": {
+                "short_term_stored": sum(
+                    1
+                    for c in stored_components
+                    if c.get("storage_details", {}).get("short_term")
+                ),
+                "long_term_stored": sum(
+                    1
+                    for c in stored_components
+                    if c.get("storage_details", {}).get("long_term")
+                ),
+                "emotional_anchors": sum(
+                    1
+                    for c in stored_components
+                    if c.get("memory_type") == "meaningful_connection"
+                ),
+            },
+        }
 
         return result
 
@@ -139,16 +212,66 @@ class MemoryService:
     ) -> Dict[str, Any]:
         """Store memory using dual strategy (different handling for short-term vs long-term)."""
 
-        # Determine storage destinations based on stability score
+        # Determine storage destinations based on memory type classification
         will_store_short_term = True  # Almost always store in short-term for context
-        will_store_long_term = score.stability > self.config.stability_threshold
+
+        # Check if this is a lasting memory or meaningful connection that should be stored long-term
+        score_metadata = score.metadata or {}
+        memory_type = score_metadata.get("memory_type", "temporary_state")
+        storage_recommendation = score_metadata.get(
+            "storage_recommendation", "probably_skip"
+        )
+
+        # Only store in long-term if it's explicitly a lasting memory or meaningful connection
+        should_store_long_term = memory_type in [
+            "lasting_memory",
+            "meaningful_connection",
+        ] and storage_recommendation in ["definitely_save", "probably_save"]
+
+        # For chat messages with PII: be more granular about consent requirements
+        is_chat_message = base_memory.type in [
+            "user_message",
+            "assistant_message",
+            "chat",
+        ]
+        has_pii = pii_results.get("has_pii", False)
+
+        # Check if this specific component content has high-risk PII that requires consent
+        component_content = score_metadata.get("component_content", base_memory.content)
+        component_has_high_risk_pii = False
+
+        if has_pii:
+            # Check if any PII items overlap with this component's content
+            for pii_item in pii_results.get("detected_items", []):
+                pii_text = pii_item.get("text", "")
+                if (
+                    pii_text.lower() in component_content.lower()
+                    and pii_item.get("risk_level") == "high"
+                ):
+                    component_has_high_risk_pii = True
+                    break
+
+        # Determine if we need to defer long-term storage for this specific component
+        if (
+            is_chat_message
+            and component_has_high_risk_pii
+            and should_store_long_term
+            and not user_consent
+        ):
+            # Only defer if this component actually contains high-risk PII
+            will_store_long_term = False  # Defer until consent
+            pending_consent = True
+        else:
+            # Store normally - either no PII, low-risk PII, or consent provided
+            will_store_long_term = should_store_long_term
+            pending_consent = False
 
         stored_memories = {}
 
         # STEP 1: Store in SHORT-TERM (Redis) - more permissive with PII
         if will_store_short_term:
             short_term_content = await self.pii_detector.apply_granular_consent(
-                base_memory.content, "short_term", user_consent, pii_results
+                component_content, "short_term", user_consent, pii_results
             )
 
             short_term_memory = MemoryItem(
@@ -159,7 +282,8 @@ class MemoryService:
                 metadata={
                     **base_memory.metadata,
                     "storage_type": "short_term",
-                    "has_pii": pii_results["has_pii"],
+                    "has_pii": has_pii,
+                    "component_has_high_risk_pii": component_has_high_risk_pii,
                     "detected_items": [
                         item["id"] for item in pii_results.get("detected_items", [])
                     ],
@@ -169,6 +293,11 @@ class MemoryService:
                         "explicitness": float(score.explicitness),
                     },
                     "pii_strategy": "permissive_for_personalization",
+                    # Add pending consent information
+                    "pending_long_term_consent": pending_consent,
+                    "should_store_long_term": should_store_long_term,
+                    "memory_type": memory_type,
+                    "storage_recommendation": storage_recommendation,
                 },
                 timestamp=base_memory.timestamp,
             )
@@ -181,13 +310,17 @@ class MemoryService:
                 user_id=user_id,
                 memory=short_term_memory,
                 score=asdict(score),
-                metadata={"storage_type": "short_term", "pii_handling": "permissive"},
+                metadata={
+                    "storage_type": "short_term",
+                    "pii_handling": "permissive",
+                    "pending_consent": pending_consent,
+                },
             )
 
         # STEP 2: Store in LONG-TERM (Vector DB) - more conservative with PII
         if will_store_long_term:
             long_term_content = await self.pii_detector.apply_granular_consent(
-                base_memory.content, "long_term", user_consent, pii_results
+                component_content, "long_term", user_consent, pii_results
             )
 
             long_term_memory = MemoryItem(
@@ -198,7 +331,8 @@ class MemoryService:
                 metadata={
                     **base_memory.metadata,
                     "storage_type": "long_term",
-                    "has_pii": pii_results["has_pii"],
+                    "has_pii": has_pii,
+                    "component_has_high_risk_pii": component_has_high_risk_pii,
                     "detected_items": [
                         item["id"] for item in pii_results.get("detected_items", [])
                     ],
@@ -209,6 +343,23 @@ class MemoryService:
                     },
                     "pii_strategy": "conservative_for_privacy",
                     "original_memory_id": base_memory.id,
+                    # Add new memory classification fields
+                    "memory_type": score_metadata.get("memory_type", "lasting_memory"),
+                    "significance_category": score_metadata.get(
+                        "significance_category"
+                    ),
+                    "significance_level": score_metadata.get("significance_level"),
+                    "storage_recommendation": score_metadata.get(
+                        "storage_recommendation"
+                    ),
+                    # Special fields for meaningful connections (emotional anchors)
+                    "connection_type": score_metadata.get("connection_type"),
+                    "emotional_significance": score_metadata.get(
+                        "emotional_significance"
+                    ),
+                    "personal_meaning": score_metadata.get("personal_meaning"),
+                    "anchor_strength": score_metadata.get("anchor_strength"),
+                    "display_category": score_metadata.get("display_category"),
                 },
                 timestamp=base_memory.timestamp,
             )
@@ -249,6 +400,12 @@ class MemoryService:
                 "long_term": will_store_long_term,
                 "privacy_strategy": "dual_storage",
                 "vector_database": Config.VECTOR_DB_TYPE,
+                "pending_consent": pending_consent,
+                "consent_reason": (
+                    "PII detected in chat message - long-term storage deferred"
+                    if pending_consent
+                    else None
+                ),
             },
             "stored_memories": {k: asdict(v) for k, v in stored_memories.items()},
             "score": {
@@ -263,6 +420,7 @@ class MemoryService:
                 ),
                 "items": len(pii_results.get("detected_items", [])),
                 "handling": "granular_per_item",
+                "consent_deferred": pending_consent,
             },
         }
 
@@ -332,6 +490,93 @@ class MemoryService:
             sensitive=await self._get_sensitive_count(user_id),
         )
 
+    async def get_emotional_anchors(self, user_id: str) -> List[MemoryItem]:
+        """Get emotional anchors (meaningful connections) for a user."""
+        # Get all long-term memories
+        all_memories = await self.vector_store.get_memories(user_id)
+
+        # Filter for meaningful connections (emotional anchors) - be more strict
+        emotional_anchors = []
+        for memory in all_memories:
+            memory_type = memory.metadata.get("memory_type", "")
+            display_category = memory.metadata.get("display_category", "")
+            connection_type = memory.metadata.get("connection_type", "")
+
+            # Only include if explicitly marked as meaningful_connection
+            # AND has connection_type (to ensure it's a proper anchor)
+            is_meaningful_connection = memory_type == "meaningful_connection"
+            is_emotional_anchor = display_category == "emotional_anchor"
+            has_connection_type = bool(connection_type)
+
+            # Must be meaningful_connection AND have connection_type
+            # OR explicitly marked as emotional_anchor
+            if (
+                is_meaningful_connection and has_connection_type
+            ) or is_emotional_anchor:
+                emotional_anchors.append(memory)
+
+        # Sort by anchor strength and significance
+        emotional_anchors.sort(
+            key=lambda m: (
+                {"strong": 3, "moderate": 2, "developing": 1}.get(
+                    m.metadata.get("anchor_strength", "developing"), 1
+                ),
+                {"critical": 4, "high": 3, "moderate": 2, "low": 1, "minimal": 0}.get(
+                    m.metadata.get("significance_level", "minimal"), 0
+                ),
+            ),
+            reverse=True,
+        )
+
+        return emotional_anchors
+
+    async def get_regular_memories(
+        self, user_id: str, query: Optional[str] = None
+    ) -> List[MemoryItem]:
+        """Get regular lasting memories (excluding emotional anchors) for a user."""
+        if query:
+            # Use semantic search
+            all_memories = await self.vector_store.get_similar_memories(
+                user_id=user_id, query=query
+            )
+        else:
+            # Get all long-term memories
+            all_memories = await self.vector_store.get_memories(user_id)
+
+        # Filter for regular lasting memories - exclude emotional anchors
+        regular_memories = []
+        for memory in all_memories:
+            memory_type = memory.metadata.get("memory_type", "")
+            display_category = memory.metadata.get("display_category", "")
+            connection_type = memory.metadata.get("connection_type", "")
+
+            # Include if:
+            # 1. Explicitly marked as lasting_memory
+            # 2. NOT a meaningful_connection with connection_type (that's an anchor)
+            # 3. NOT marked as emotional_anchor
+            is_lasting_memory = memory_type == "lasting_memory"
+            is_meaningful_connection_with_type = (
+                memory_type == "meaningful_connection" and bool(connection_type)
+            )
+            is_emotional_anchor = display_category == "emotional_anchor"
+
+            # Include lasting memories that are NOT emotional anchors
+            if (
+                is_lasting_memory
+                and not is_meaningful_connection_with_type
+                and not is_emotional_anchor
+            ):
+                regular_memories.append(memory)
+            # Also include long-term storage memories that don't have specific classification
+            elif (
+                memory.metadata.get("storage_type") == "long_term"
+                and not memory_type
+                and not is_emotional_anchor
+            ):
+                regular_memories.append(memory)
+
+        return regular_memories
+
     async def delete_memory(self, user_id: str, memory_id: str) -> bool:
         """Delete a specific memory."""
         # Try deleting from both stores
@@ -362,11 +607,24 @@ class MemoryService:
     async def _generate_digest(self, memories: List[MemoryItem]) -> str:
         """Generate a digest of memories."""
         if not memories:
-            return ""
+            return "No memories available"
 
-        # Create a simple digest from recent memories
-        recent_contents = [m.content for m in memories[-5:]]  # Last 5 memories
-        return f"Recent context: {'; '.join(recent_contents)}"
+        # Separate short-term and long-term memories for accurate counting
+        short_term_memories = [
+            m for m in memories if m.metadata.get("storage_type") == "short_term"
+        ]
+        long_term_memories = [
+            m for m in memories if m.metadata.get("storage_type") == "long_term"
+        ]
+
+        # Create digest focusing on long-term memories for context
+        if long_term_memories:
+            recent_long_term = [
+                m.content for m in long_term_memories[-3:]
+            ]  # Last 3 long-term memories
+            return f"{len(long_term_memories)} long-term memories available for context: {'; '.join(recent_long_term)}"
+        else:
+            return "No long-term memories available yet"
 
     async def _get_sensitive_count(self, user_id: str) -> int:
         """Get count of sensitive memories."""
@@ -381,6 +639,62 @@ class MemoryService:
             return sensitive_count
         except Exception:
             return 0
+
+    async def get_pending_consent_memories(self, user_id: str) -> Dict[str, Any]:
+        """Get memories that are pending PII consent for long-term storage."""
+        # Get all short-term memories
+        short_term_memories = await self.redis_store.get_memories(user_id)
+
+        # Filter for memories pending consent
+        pending_memories = [
+            memory
+            for memory in short_term_memories
+            if memory.metadata.get("pending_long_term_consent", False)
+        ]
+
+        if not pending_memories:
+            return {
+                "pending_memories": [],
+                "total_count": 0,
+                "message": "No memories pending consent",
+            }
+
+        # Analyze each pending memory for consent options
+        memory_summaries = []
+        for memory in pending_memories:
+            # Run PII detection to get consent options
+            pii_results = await self.pii_detector.detect_pii(memory)
+            consent_options = self.pii_detector.get_granular_consent_options(
+                pii_results
+            )
+
+            memory_summary = {
+                "id": memory.id,
+                "content": memory.content,
+                "type": memory.type,
+                "timestamp": memory.timestamp.isoformat(),
+                "memory_type": memory.metadata.get("memory_type", "unknown"),
+                "storage_recommendation": memory.metadata.get(
+                    "storage_recommendation", "unknown"
+                ),
+                "consent_options": consent_options,
+                "pii_summary": {
+                    "detected_types": list(
+                        set(
+                            item["type"]
+                            for item in pii_results.get("detected_items", [])
+                        )
+                    ),
+                    "items_count": len(pii_results.get("detected_items", [])),
+                },
+            }
+            memory_summaries.append(memory_summary)
+
+        return {
+            "pending_memories": memory_summaries,
+            "total_count": len(pending_memories),
+            "message": f"Found {len(pending_memories)} memories pending consent for long-term storage",
+        }
 
     async def get_chat_session_summary(self, user_id: str) -> Dict[str, Any]:
         """Get a summary of chat memories for user review and selection."""
@@ -557,5 +871,168 @@ class MemoryService:
 
         # Clear short-term memories after processing
         await self.redis_store.clear_memories(user_id)
+
+        return results
+
+    async def process_pending_consent(
+        self,
+        user_id: str,
+        memory_choices: Dict[
+            str, Dict[str, Any]
+        ],  # memory_id -> {"consent": {...}, "action": "approve|deny"}
+    ) -> Dict[str, Any]:
+        """Process pending memories with user consent decisions."""
+        results = {"processed": [], "errors": [], "summary": {}}
+
+        # Get all short-term memories
+        short_term_memories = await self.redis_store.get_memories(user_id)
+
+        # Filter for memories pending consent
+        pending_memories = {
+            memory.id: memory
+            for memory in short_term_memories
+            if memory.metadata.get("pending_long_term_consent", False)
+        }
+
+        for memory_id, choice in memory_choices.items():
+            if memory_id not in pending_memories:
+                results["errors"].append(
+                    {
+                        "memory_id": memory_id,
+                        "error": "Memory not found or not pending consent",
+                    }
+                )
+                continue
+
+            memory = pending_memories[memory_id]
+            action = choice.get("action", "deny")
+            user_consent = choice.get("consent", {})
+
+            try:
+                if action == "approve":
+                    # Process the memory with consent for long-term storage
+                    # Re-run the component extraction and storage
+                    memory_scores = self.scorer.score_memory(memory)
+
+                    for score in memory_scores:
+                        score_metadata = score.metadata or {}
+                        memory_type = score_metadata.get(
+                            "memory_type", "temporary_state"
+                        )
+                        storage_recommendation = score_metadata.get(
+                            "storage_recommendation", "probably_skip"
+                        )
+
+                        # Only process components that should be stored long-term
+                        should_store_long_term = memory_type in [
+                            "lasting_memory",
+                            "meaningful_connection",
+                        ] and storage_recommendation in [
+                            "definitely_save",
+                            "probably_save",
+                        ]
+
+                        if should_store_long_term:
+                            component_content = score_metadata.get(
+                                "component_content", memory.content
+                            )
+
+                            # Create component memory for long-term storage
+                            component_memory = MemoryItem(
+                                id=f"{memory.id}_component_{score_metadata.get('component_index', 0)}_long",
+                                userId=user_id,
+                                content=component_content,
+                                type=memory.type,
+                                metadata={
+                                    **memory.metadata,
+                                    "component_content": component_content,
+                                    "component_index": score_metadata.get(
+                                        "component_index", 0
+                                    ),
+                                    "total_components": score_metadata.get(
+                                        "total_components", 1
+                                    ),
+                                    "original_message": memory.content,
+                                    "storage_type": "long_term",
+                                    "user_approved": True,
+                                    "consent_provided": True,
+                                    **{
+                                        k: v
+                                        for k, v in score_metadata.items()
+                                        if k.startswith(
+                                            (
+                                                "memory_type",
+                                                "significance_",
+                                                "storage_",
+                                                "connection_",
+                                                "emotional_",
+                                                "personal_",
+                                                "anchor_",
+                                                "display_",
+                                            )
+                                        )
+                                    },
+                                },
+                                timestamp=memory.timestamp,
+                            )
+
+                            # Apply PII consent and store
+                            pii_results = await self.pii_detector.detect_pii(memory)
+                            long_term_content = (
+                                await self.pii_detector.apply_granular_consent(
+                                    component_content,
+                                    "long_term",
+                                    user_consent,
+                                    pii_results,
+                                )
+                            )
+                            component_memory.content = long_term_content
+
+                            await self.vector_store.add_memory(
+                                user_id, component_memory
+                            )
+
+                            results["processed"].append(
+                                {
+                                    "memory_id": memory_id,
+                                    "component_content": component_content,
+                                    "memory_type": memory_type,
+                                    "action": "approved_and_stored",
+                                    "long_term_content": long_term_content,
+                                }
+                            )
+
+                elif action == "deny":
+                    results["processed"].append(
+                        {"memory_id": memory_id, "action": "denied"}
+                    )
+
+                # Update the short-term memory to remove pending status
+                memory.metadata["pending_long_term_consent"] = False
+                memory.metadata["consent_processed"] = True
+                memory.metadata["consent_action"] = action
+                await self.redis_store.add_memory(user_id, memory)  # Update in Redis
+
+            except Exception as e:
+                results["errors"].append({"memory_id": memory_id, "error": str(e)})
+
+        # Generate summary
+        approved_count = len(
+            [
+                r
+                for r in results["processed"]
+                if r.get("action") == "approved_and_stored"
+            ]
+        )
+        denied_count = len(
+            [r for r in results["processed"] if r.get("action") == "denied"]
+        )
+
+        results["summary"] = {
+            "total_processed": len(results["processed"]),
+            "approved": approved_count,
+            "denied": denied_count,
+            "errors": len(results["errors"]),
+        }
 
         return results
