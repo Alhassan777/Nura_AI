@@ -96,10 +96,9 @@ REDIS_URL=redis://localhost:6379
 # Backend URL
 BACKEND_URL=http://localhost:8000
 
-# Auth0 Configuration (optional)
-AUTH0_SECRET=your-auth0-secret-here
-AUTH0_BASE_URL=http://localhost:3000
-AUTH0_ISSUER_BASE_URL=https://your-domain.auth0.com
+# Authentication Configuration
+# Currently using localStorage-based authentication
+# No additional configuration needed
 ```
 
 ## 🛠️ Development Setup

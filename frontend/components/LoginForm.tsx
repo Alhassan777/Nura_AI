@@ -41,15 +41,36 @@ export function LoginForm() {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
+      // Set authentication cookie
       setCookie("token", "123");
-      setUser({
-        id: "1",
-        email: data.email,
-        fullName: "John Doe",
-        phoneNumber: "1234567890",
-      });
+
+      // In a real app, this would authenticate against a backend
+      // For now, we'll simulate by checking if user exists in localStorage
+      const existingUsers = JSON.parse(localStorage.getItem("users") || "[]");
+      const existingUser = existingUsers.find(
+        (user: any) => user.email === data.email
+      );
+
+      if (!existingUser) {
+        toast.error("User not found. Please sign up first.");
+        return;
+      }
+
+      // Set user data with voice integration compatibility
+      const userData = {
+        id: existingUser.id,
+        email: existingUser.email,
+        fullName: existingUser.fullName,
+        phoneNumber: existingUser.phoneNumber,
+        sub: existingUser.id, // Add sub field for voice compatibility
+      };
+
+      setUser(userData);
       toast.success("Login successful");
       setIsOpen(false);
+
+      // Force a page refresh to update authentication state
+      window.location.reload();
     } catch (error) {
       toast.error("Login failed");
     }

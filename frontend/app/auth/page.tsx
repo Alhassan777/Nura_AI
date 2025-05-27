@@ -1,34 +1,30 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { useUser } from '../providers';
+import React from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { useUser } from "../providers";
+import { LoginForm } from "@/components/LoginForm";
+import { SignupForm } from "@/components/SignupForm";
 
 export default function AuthPage() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useUser();
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Redirect to dashboard if already authenticated
   React.useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     }
   }, [isAuthenticated, isLoading, router]);
-
-  // Handle demo login
-  const handleDemoLogin = () => {
-    setIsLoggingIn(true);
-    // Simulate login delay
-    setTimeout(() => {
-      // In a real implementation, this would redirect to Auth0 login
-      // For demo purposes, we'll just redirect to the dashboard and rely on our mocked user
-      router.push('/dashboard');
-    }, 1000);
-  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-background/90 dark:from-card dark:to-background flex items-center justify-center p-4">
@@ -41,13 +37,13 @@ export default function AuthPage() {
         <div className="absolute -inset-[10px] opacity-10">
           {/* Neo grid background */}
           <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:24px_24px]"></div>
-          
+
           {/* Gradient orbs */}
           <div className="absolute top-0 left-0 -mt-40 -ml-40 w-96 h-96 bg-primary/20 dark:bg-primary/10 rounded-full blur-3xl"></div>
           <div className="absolute bottom-0 right-0 -mb-40 -mr-40 w-96 h-96 bg-slate-400/20 dark:bg-slate-900/20 rounded-full blur-3xl"></div>
         </div>
       </motion.div>
-      
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -64,36 +60,36 @@ export default function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="py-6">
-            <div className="space-y-4">
+            <div className="space-y-6">
               <p className="text-center text-muted-foreground">
-                Sign in or create an account to get started
+                Sign in or create an account to get started with your mental
+                health journey
               </p>
-              
-              <div className="flex flex-col space-y-3">
-                <Button 
-                  variant="default" 
-                  size="lg"
-                  className="w-full"
-                  onClick={handleDemoLogin}
-                  disabled={isLoggingIn}
-                >
-                  {isLoggingIn ? 'Logging in...' : 'Demo Login'}
-                </Button>
-                
-                <Button 
-                  variant="outline" 
-                  size="lg"
-                  className="w-full border-neutral-200/30 dark:border-neutral-800/50"
-                  onClick={handleDemoLogin}
-                  disabled={isLoggingIn}
-                >
-                  Demo Sign Up
-                </Button>
+
+              <div className="flex flex-col space-y-4">
+                <div className="flex justify-center">
+                  <LoginForm />
+                </div>
+
+                <div className="flex items-center my-4">
+                  <div className="flex-1 border-t border-neutral-200/30 dark:border-neutral-800/50"></div>
+                  <span className="mx-4 text-sm text-muted-foreground">or</span>
+                  <div className="flex-1 border-t border-neutral-200/30 dark:border-neutral-800/50"></div>
+                </div>
+
+                <div className="flex justify-center">
+                  <SignupForm />
+                </div>
               </div>
-              
+
               <div className="text-xs text-center text-muted-foreground mt-6">
-                <p className="mb-1">This is a demo implementation.</p>
-                <p>In a real application, this would connect to Auth0 for authentication.</p>
+                <p className="mb-1">
+                  Your data is stored securely and privately.
+                </p>
+                <p>
+                  Start your journey to better mental health with Nura's AI
+                  assistant.
+                </p>
               </div>
             </div>
           </CardContent>
@@ -101,4 +97,4 @@ export default function AuthPage() {
       </motion.div>
     </div>
   );
-} 
+}

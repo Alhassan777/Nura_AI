@@ -35,6 +35,7 @@ export type User = {
   email: string;
   fullName: string;
   phoneNumber: string;
+  sub?: string; // For voice integration compatibility
 };
 
 export function SignupForm() {
@@ -53,15 +54,44 @@ export function SignupForm() {
 
   const onSubmit = async (data: SignupFormData) => {
     try {
+      // Set authentication cookie
       setCookie("token", "123");
-      setUser({
-        id: "1",
+
+      // Generate unique user ID
+      const userId = `user_${Date.now()}_${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
+
+      // Check if user already exists
+      const existingUsers = JSON.parse(localStorage.getItem("users") || "[]");
+      const userExists = existingUsers.find(
+        (user: any) => user.email === data.email
+      );
+
+      if (userExists) {
+        toast.error("User already exists. Please log in instead.");
+        return;
+      }
+
+      // Set user data with voice integration compatibility
+      const userData = {
+        id: userId,
         email: data.email,
-        fullName: "John Doe",
-        phoneNumber: "1234567890",
-      });
+        fullName: data.fullName,
+        phoneNumber: data.phoneNumber.replace(/\D/g, ""), // Store clean phone number
+        sub: userId, // Add sub field for voice compatibility
+      };
+
+      // Store user in users array
+      existingUsers.push(userData);
+      localStorage.setItem("users", JSON.stringify(existingUsers));
+
+      setUser(userData);
       toast.success("Signup successful");
       setIsOpen(false);
+
+      // Force a page refresh to update authentication state
+      window.location.reload();
     } catch (error) {
       console.log(error);
       toast.error("Signup failed");

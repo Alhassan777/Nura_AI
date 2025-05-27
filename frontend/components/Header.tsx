@@ -52,10 +52,11 @@ export default function Header() {
     return pathname.startsWith(href);
   };
 
-  // Handle logout in demo mode
+  // Handle logout
   const handleLogout = () => {
-    // In a real implementation with Auth0, this would redirect to /api/auth/logout
-    // For demo purposes, just redirect to auth page
+    // Clear authentication data
+    document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    localStorage.removeItem("user");
     router.push("/auth");
   };
 
@@ -203,7 +204,7 @@ export default function Header() {
               </DropdownMenu>
             )}
 
-            {!isAuthenticated && !isLoading && (
+            {!isAuthenticated && !isLoading && pathname !== "/auth" && (
               <Button
                 variant="default"
                 size="sm"
