@@ -9,8 +9,10 @@ import aiohttp
 import json
 import os
 from typing import Dict, Any, Optional
-from .assistant.mental_health_assistant import MentalHealthAssistant
-from .types import MemoryContext
+
+# Import from memory service
+from ..memory.assistant.mental_health_assistant import MentalHealthAssistant
+from ..memory.types import MemoryContext
 
 logger = logging.getLogger(__name__)
 

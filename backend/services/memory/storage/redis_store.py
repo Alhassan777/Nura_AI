@@ -1,8 +1,15 @@
 import json
 import logging
 from typing import List, Optional
-import redis.asyncio as redis
 from datetime import datetime
+
+# Import centralized Redis utilities
+from utils.redis_client import (
+    get_redis_client,
+    cache_list_push,
+    cache_list_get,
+    cache_delete,
+)
 
 from ..types import MemoryItem
 
@@ -12,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class RedisStore:
     def __init__(self, redis_url: str, max_size: int = 10):
-        self.redis = redis.from_url(redis_url)
+        # We don't need to store redis_url since we use centralized client
         self.max_size = max_size
         logger.info(f"Initialized RedisStore with max_size={max_size}")
 
@@ -33,11 +40,14 @@ class RedisStore:
                 },
             }
 
+            # Use centralized Redis utility for list operations
+            redis_client = await get_redis_client()
+
             # Add to Redis list
-            await self.redis.lpush(key, json.dumps(memory_dict))
+            await redis_client.lpush(key, json.dumps(memory_dict))
 
             # Trim list to max size
-            await self.redis.ltrim(key, 0, self.max_size - 1)
+            await redis_client.ltrim(key, 0, self.max_size - 1)
 
             logger.info(f"Added memory {memory.id} for user {user_id} to Redis")
 
@@ -52,11 +62,18 @@ class RedisStore:
         key = f"user:{user_id}:memories"
 
         try:
+            # Use centralized Redis utility
+            redis_client = await get_redis_client()
+
             # Get all memories from Redis
-            memory_jsons = await self.redis.lrange(key, 0, -1)
+            memory_jsons = await redis_client.lrange(key, 0, -1)
 
             memories = []
             for memory_json in memory_jsons:
+                # Decode bytes to string if needed
+                if isinstance(memory_json, bytes):
+                    memory_json = memory_json.decode("utf-8")
+
                 memory_dict = json.loads(memory_json)
 
                 # Convert timestamp back to datetime
@@ -82,15 +99,22 @@ class RedisStore:
         key = f"user:{user_id}:memories"
 
         try:
+            # Use centralized Redis utility
+            redis_client = await get_redis_client()
+
             # Get all memories
-            memory_jsons = await self.redis.lrange(key, 0, -1)
+            memory_jsons = await redis_client.lrange(key, 0, -1)
 
             # Find and remove the target memory
             for i, memory_json in enumerate(memory_jsons):
+                # Decode bytes to string if needed
+                if isinstance(memory_json, bytes):
+                    memory_json = memory_json.decode("utf-8")
+
                 memory_dict = json.loads(memory_json)
                 if memory_dict["id"] == memory_id:
                     # Remove the memory
-                    await self.redis.lrem(key, 1, memory_json)
+                    await redis_client.lrem(key, 1, memory_json)
                     logger.info(f"Deleted memory {memory_id} for user {user_id}")
                     return True
 
@@ -105,8 +129,6 @@ class RedisStore:
 
     async def update_memory(self, user_id: str, memory: MemoryItem) -> bool:
         """Update an existing memory or add it if it doesn't exist."""
-        key = f"user:{user_id}:memories"
-
         try:
             # First, try to delete the existing memory
             await self.delete_memory(user_id, memory.id)
@@ -128,8 +150,11 @@ class RedisStore:
         key = f"user:{user_id}:memories"
 
         try:
-            count = await self.redis.llen(key)
-            await self.redis.delete(key)
+            # Use centralized Redis utility
+            redis_client = await get_redis_client()
+
+            count = await redis_client.llen(key)
+            await redis_client.delete(key)
             logger.info(f"Cleared {count} memories for user {user_id}")
 
         except Exception as e:
@@ -141,7 +166,10 @@ class RedisStore:
         key = f"user:{user_id}:memories"
 
         try:
-            count = await self.redis.llen(key)
+            # Use centralized Redis utility
+            redis_client = await get_redis_client()
+
+            count = await redis_client.llen(key)
             logger.debug(f"User {user_id} has {count} memories in Redis")
             return count
 

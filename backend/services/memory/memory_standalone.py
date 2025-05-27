@@ -1,3 +1,9 @@
+"""
+Standalone FastAPI application for Memory Service.
+Use this to run the memory service independently.
+For integrated deployment, use the centralized backend/main.py instead.
+"""
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +14,7 @@ from .config import Config
 
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
+    """Create and configure the FastAPI application for standalone deployment."""
     # Add CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -22,7 +28,10 @@ def create_app() -> FastAPI:
 
 
 def main():
-    """Run the memory service."""
+    """Run the memory service in standalone mode."""
+    print("🧠 Starting Memory Service in Standalone Mode")
+    print("📝 For integrated deployment, use backend/main.py instead")
+
     # Validate configuration
     Config.validate()
 

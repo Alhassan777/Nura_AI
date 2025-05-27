@@ -4,11 +4,13 @@ from typing import Optional, List, Dict, Any
 import os
 import logging
 from dataclasses import asdict
-import redis.asyncio as redis
 from datetime import timedelta
 import json
 import time
 from datetime import datetime
+
+# Import centralized utilities
+from utils.redis_client import cache_set, cache_get, cache_delete, get_redis_client
 
 from .memoryService import MemoryService
 from .types import MemoryItem, MemoryContext, MemoryStats
@@ -24,9 +26,16 @@ app = FastAPI(title="Nura Memory Service")
 memory_service = MemoryService()
 mental_health_assistant = MentalHealthAssistant()
 
-# Add Redis client for voice mappings (after existing Redis initialization)
-# Voice mapping storage in Redis
-redis_client = redis.from_url(Config.REDIS_URL)
+# Import and include voice service router
+try:
+    from ..voice.api import router as voice_router
+
+    app.include_router(voice_router)
+    logger.info("✅ Voice service integrated into memory service")
+except ImportError as e:
+    logger.warning(f"⚠️ Could not import voice service: {e}")
+except Exception as e:
+    logger.error(f"❌ Failed to integrate voice service: {e}")
 
 
 # Helper function to check configuration status
@@ -80,10 +89,16 @@ def get_configuration_status() -> Dict[str, Any]:
     if Config.REDIS_URL == "redis://localhost:6379":
         # Only add as optional if Redis is actually not accessible
         try:
-            import redis
+            # Use centralized Redis utility for health check
+            import asyncio
 
-            r = redis.Redis.from_url(Config.REDIS_URL)
-            r.ping()
+            # Create a simple async function to test Redis connection
+            async def test_redis():
+                redis_client = await get_redis_client()
+                await redis_client.ping()
+
+            # Run the async test
+            asyncio.create_task(test_redis())
         except:
             missing_optional.append("REDIS_URL - Redis not accessible")
 
@@ -190,39 +205,6 @@ class ConsentResponse(BaseModel):
     success: bool
     message: str
     configuration_status: Optional[Dict[str, Any]] = None
-
-
-class VoiceMappingRequest(BaseModel):
-    callId: str
-    customerId: str
-    mode: str
-    phoneNumber: Optional[str] = None
-
-
-class VoiceWebhookEventRequest(BaseModel):
-    event: Dict[str, Any]
-    callId: str
-    receivedAt: str
-    source: str = "vapi_webhook"
-
-
-class VoiceProcessingResult(BaseModel):
-    success: bool
-    callId: str
-    customerId: Optional[str]
-    processingTimeMs: float
-    assistantReply: Optional[str] = None
-    crisisLevel: Optional[str] = None
-    memoryStored: bool = False
-    error: Optional[str] = None
-    timestamp: str
-    # Section 3: Enhanced voice processing metadata
-    voiceOptimized: Optional[bool] = None
-    wordCount: Optional[int] = None
-    estimatedSpeechTime: Optional[float] = None
-    vapiDelivery: Optional[Dict[str, Any]] = None
-    controlUrlUsed: Optional[str] = None
-    requiresImmediateDelivery: Optional[bool] = None
 
 
 @app.get("/health")
@@ -1181,355 +1163,6 @@ async def apply_privacy_choices(user_id: str, choices: Dict[str, str]):
     except Exception as e:
         logger.error(f"Error applying privacy choices: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/voice/mapping")
-async def store_voice_mapping(request: VoiceMappingRequest):
-    """Store callId to customerId mapping in Redis."""
-    try:
-        # Store mapping with 30 minute TTL
-        key = f"vapi:call:{request.callId}"
-        mapping_data = {
-            "customerId": request.customerId,
-            "mode": request.mode,
-            "phoneNumber": request.phoneNumber,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        await redis_client.setex(
-            key, int(timedelta(minutes=30).total_seconds()), json.dumps(mapping_data)
-        )
-
-        logger.info(f"Stored voice mapping: {request.callId} -> {request.customerId}")
-
-        return {
-            "success": True,
-            "callId": request.callId,
-            "customerId": request.customerId,
-            "ttl_minutes": 30,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to store voice mapping: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to store mapping: {str(e)}"
-        )
-
-
-@app.get("/voice/mapping/{call_id}")
-async def get_voice_mapping(call_id: str):
-    """Get customerId from callId."""
-    try:
-        key = f"vapi:call:{call_id}"
-        mapping_json = await redis_client.get(key)
-
-        if not mapping_json:
-            raise HTTPException(status_code=404, detail="Call mapping not found")
-
-        mapping_data = json.loads(mapping_json)
-        return {
-            "callId": call_id,
-            "customerId": mapping_data["customerId"],
-            "mode": mapping_data.get("mode"),
-            "phoneNumber": mapping_data.get("phoneNumber"),
-            "timestamp": mapping_data.get("timestamp"),
-        }
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to decode mapping data for {call_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Invalid mapping data")
-    except Exception as e:
-        logger.error(f"Failed to get voice mapping for {call_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get mapping: {str(e)}")
-
-
-@app.delete("/voice/mapping/{call_id}")
-async def delete_voice_mapping(call_id: str):
-    """Delete callId mapping (cleanup)."""
-    try:
-        key = f"vapi:call:{call_id}"
-        result = await redis_client.delete(key)
-
-        if result == 0:
-            raise HTTPException(status_code=404, detail="Call mapping not found")
-
-        logger.info(f"Deleted voice mapping for call {call_id}")
-        return {"success": True, "deleted": True}
-
-    except Exception as e:
-        logger.error(f"Failed to delete voice mapping for {call_id}: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to delete mapping: {str(e)}"
-        )
-
-
-@app.post("/voice/webhook-event", response_model=VoiceProcessingResult)
-async def process_voice_webhook_event(request: VoiceWebhookEventRequest):
-    """Process voice webhook events from Vapi - the core voice processing pipeline."""
-    start_time = time.time()
-
-    try:
-        config_status = get_configuration_status()
-
-        # Extract event details
-        event = request.event
-        call_id = request.callId
-        event_type = event.get("type") or event.get("eventType")
-
-        logger.info(f"🎯 Processing voice event: {event_type} for call {call_id}")
-
-        # Get customer ID from call mapping (Section 1)
-        customer_id = await get_customer_id_from_call(call_id)
-        if not customer_id:
-            logger.warning(f"No customer mapping found for call {call_id}")
-            processing_time = (time.time() - start_time) * 1000
-
-            return VoiceProcessingResult(
-                success=False,
-                callId=call_id,
-                customerId=None,
-                processingTimeMs=processing_time,
-                error="Customer mapping not found for call",
-                timestamp=datetime.utcnow().isoformat(),
-            )
-
-        logger.info(f"📋 Found customer {customer_id} for call {call_id}")
-
-        # Extract message content and control URL from conversation-update event
-        user_message = None
-        control_url = None
-
-        if event_type == "conversation-update":
-            # Try different possible locations for the message content
-            message = event.get("message", {})
-            if isinstance(message, dict):
-                user_message = message.get("content") or message.get("text")
-            elif isinstance(message, str):
-                user_message = message
-
-            # Also check if it's in the transcript
-            transcript = event.get("transcript", {})
-            if not user_message and transcript:
-                user_message = transcript.get("text") or transcript.get("content")
-
-            # Check for user role specifically
-            if message.get("role") == "user" and message.get("content"):
-                user_message = message["content"]
-
-            # Extract control URL for response delivery (Section 3: Vapi integration)
-            call_info = event.get("call", {})
-            control_url = call_info.get("controlUrl") or event.get("controlUrl")
-
-            # Also check for phoneNumber in call info for phone calls
-            phone_number = call_info.get("phoneNumber") or call_info.get(
-                "customer", {}
-            ).get("number")
-
-        if not user_message:
-            logger.warning(
-                f"No user message found in conversation-update event for call {call_id}"
-            )
-            processing_time = (time.time() - start_time) * 1000
-
-            return VoiceProcessingResult(
-                success=False,
-                callId=call_id,
-                customerId=customer_id,
-                processingTimeMs=processing_time,
-                error="No user message found in event",
-                timestamp=datetime.utcnow().isoformat(),
-            )
-
-        logger.info(
-            f"💬 Processing message from call {call_id}: {user_message[:100]}..."
-        )
-        if control_url:
-            logger.info(
-                f"🎯 Control URL found for immediate response delivery: {control_url}"
-            )
-
-        # Get memory context for the user (Section 3: RAG integration)
-        memory_context = await memory_service.get_memory_context(
-            user_id=customer_id, query=user_message
-        )
-
-        # Generate assistant response using enhanced voice adapter (Section 3: Voice Processing Pipeline)
-        from .voice_adapter import voice_adapter
-
-        assistant_response = await voice_adapter.process_voice_message(
-            user_message=user_message,
-            user_id=customer_id,
-            memory_context=memory_context,
-            call_id=call_id,
-            control_url=control_url,  # Pass control URL for immediate delivery
-        )
-
-        # Store the user message in memory
-        user_memory = await memory_service.process_memory(
-            user_id=customer_id,
-            content=user_message,
-            type="voice_user_message",
-            metadata={
-                "source": "voice_call",
-                "call_id": call_id,
-                "event_type": event_type,
-                "received_at": request.receivedAt,
-            },
-        )
-
-        # Store the assistant response in memory
-        assistant_memory = await memory_service.process_memory(
-            user_id=customer_id,
-            content=assistant_response["response"],
-            type="voice_assistant_response",
-            metadata={
-                "source": "voice_call",
-                "call_id": call_id,
-                "crisis_level": assistant_response["crisis_level"],
-                "resources_provided": assistant_response["resources_provided"],
-                "coping_strategies": assistant_response["coping_strategies"],
-            },
-        )
-
-        processing_time = (time.time() - start_time) * 1000
-
-        # Section 3: Enhanced response delivery and logging
-        vapi_delivery_status = assistant_response.get("vapi_delivery", {})
-        delivery_success = vapi_delivery_status.get("delivered", False)
-
-        if delivery_success:
-            logger.info(
-                f"🎯 Response delivered to Vapi for call {call_id}: {assistant_response['response'][:50]}..."
-            )
-        else:
-            logger.info(
-                f"🤖 Assistant response generated for call {call_id}: {assistant_response['response'][:50]}..."
-            )
-            if control_url and not delivery_success:
-                logger.warning(
-                    f"⚠️  Failed to deliver response to control URL: {vapi_delivery_status.get('error', 'Unknown error')}"
-                )
-
-        # Store enhanced latency metrics with delivery status
-        await store_voice_latency_metric(call_id, processing_time, delivery_success)
-
-        logger.info(
-            f"✅ Voice processing complete for call {call_id} in {processing_time:.1f}ms"
-        )
-
-        return VoiceProcessingResult(
-            success=True,
-            callId=call_id,
-            customerId=customer_id,
-            processingTimeMs=processing_time,
-            assistantReply=assistant_response["response"],
-            crisisLevel=assistant_response["crisis_level"],
-            memoryStored=user_memory is not None or assistant_memory is not None,
-            timestamp=datetime.utcnow().isoformat(),
-            # Section 3: Enhanced voice processing metadata
-            voiceOptimized=assistant_response.get("voice_optimized", False),
-            wordCount=assistant_response.get("word_count"),
-            estimatedSpeechTime=assistant_response.get("estimated_speech_time"),
-            vapiDelivery=vapi_delivery_status,
-            controlUrlUsed=control_url,
-            requiresImmediateDelivery=assistant_response.get(
-                "requires_immediate_delivery", False
-            ),
-        )
-
-    except Exception as e:
-        processing_time = (time.time() - start_time) * 1000
-        logger.error(f"❌ Voice processing failed for call {call_id}: {str(e)}")
-
-        return VoiceProcessingResult(
-            success=False,
-            callId=call_id,
-            customerId=customer_id if "customer_id" in locals() else None,
-            processingTimeMs=processing_time,
-            error=str(e),
-            timestamp=datetime.utcnow().isoformat(),
-        )
-
-
-async def store_voice_latency_metric(
-    call_id: str, processing_time_ms: float, delivery_success: bool = False
-):
-    """Store enhanced voice processing latency metrics with delivery status."""
-    try:
-        # Enhanced logging with delivery status
-        delivery_status = "delivered" if delivery_success else "processed_only"
-        logger.info(
-            f"📊 Voice Latency Metric - Call: {call_id}, Time: {processing_time_ms:.1f}ms, Status: {delivery_status}"
-        )
-
-        # Store in Redis for basic metrics collection
-        metrics_key = f"voice_metrics:latency:{datetime.utcnow().strftime('%Y-%m-%d')}"
-        metric_data = {
-            "call_id": call_id,
-            "processing_time_ms": processing_time_ms,
-            "delivery_success": delivery_success,
-            "delivery_status": delivery_status,
-            "timestamp": datetime.utcnow().isoformat(),
-        }
-
-        await redis_client.lpush(metrics_key, json.dumps(metric_data))
-        await redis_client.expire(metrics_key, 86400 * 7)  # Keep for 7 days
-
-    except Exception as e:
-        logger.error(f"Failed to store latency metric: {str(e)}")
-
-
-@app.get("/voice/metrics/latency")
-async def get_voice_latency_metrics(date: str = None):
-    """Get voice processing latency metrics for a specific date."""
-    try:
-        if not date:
-            date = datetime.utcnow().strftime("%Y-%m-%d")
-
-        metrics_key = f"voice_metrics:latency:{date}"
-        raw_metrics = await redis_client.lrange(metrics_key, 0, -1)
-
-        metrics = []
-        total_time = 0
-        for raw_metric in raw_metrics:
-            try:
-                metric = json.loads(raw_metric)
-                metrics.append(metric)
-                total_time += metric["processing_time_ms"]
-            except json.JSONDecodeError:
-                continue
-
-        if not metrics:
-            return {"date": date, "count": 0, "average_latency_ms": 0, "metrics": []}
-
-        return {
-            "date": date,
-            "count": len(metrics),
-            "average_latency_ms": round(total_time / len(metrics), 2),
-            "metrics": metrics,
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to get latency metrics: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# Helper function to get customerId from callId
-async def get_customer_id_from_call(call_id: str) -> Optional[str]:
-    """Helper function to get customerId from callId."""
-    try:
-        key = f"vapi:call:{call_id}"
-        mapping_json = await redis_client.get(key)
-
-        if not mapping_json:
-            return None
-
-        mapping_data = json.loads(mapping_json)
-        return mapping_data.get("customerId")
-
-    except Exception as e:
-        logger.error(f"Failed to get customer ID for call {call_id}: {str(e)}")
-        return None
 
 
 if __name__ == "__main__":
