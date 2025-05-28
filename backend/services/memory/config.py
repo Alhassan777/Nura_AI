@@ -18,6 +18,10 @@ except ImportError:
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Get the directory where this config file is located
+CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROMPTS_DIR = os.path.join(CONFIG_DIR, "prompts")
+
 
 def load_prompt_from_file(file_path: str, fallback_content: str = "") -> str:
     """Load prompt content from a file, with fallback to environment variable or default."""
@@ -75,75 +79,60 @@ class Config:
     EXPLICITNESS_THRESHOLD: float = float(os.getenv("EXPLICITNESS_THRESHOLD", "0.5"))
     MIN_SCORE_THRESHOLD: float = float(os.getenv("MIN_SCORE_THRESHOLD", "0.6"))
 
-    # Prompt file paths
-    MENTAL_HEALTH_SYSTEM_PROMPT_FILE: str = os.getenv(
-        "MENTAL_HEALTH_SYSTEM_PROMPT_FILE",
-        "services/memory/prompts/system_prompt.txt",
+    # Prompt file paths - use absolute paths relative to this config file
+    MENTAL_HEALTH_SYSTEM_PROMPT_FILE: str = os.path.join(
+        PROMPTS_DIR, "system_prompt.txt"
     )
-    CONVERSATION_GUIDELINES_FILE: str = os.getenv(
-        "CONVERSATION_GUIDELINES_FILE",
-        "services/memory/prompts/conversation_guidelines.txt",
+    CONVERSATION_GUIDELINES_FILE: str = os.path.join(
+        PROMPTS_DIR, "conversation_guidelines.txt"
     )
-    CRISIS_DETECTION_PROMPT_FILE: str = os.getenv(
-        "CRISIS_DETECTION_PROMPT_FILE",
-        "services/memory/prompts/crisis_detection.txt",
+    CRISIS_DETECTION_PROMPT_FILE: str = os.path.join(
+        PROMPTS_DIR, "crisis_detection.txt"
     )
-    MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE: str = os.getenv(
-        "MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE",
-        "services/memory/prompts/memory_scoring.txt",
+    MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE: str = os.path.join(
+        PROMPTS_DIR, "memory_scoring.txt"
     )
 
     @classmethod
     def get_mental_health_system_prompt(cls) -> str:
-        """Get the mental health system prompt from file or environment."""
-        # Try file first, then environment variable, then fallback
-        prompt = load_prompt_from_file(
-            cls.MENTAL_HEALTH_SYSTEM_PROMPT_FILE,
-            os.getenv("MENTAL_HEALTH_SYSTEM_PROMPT", ""),
-        )
+        """Get the mental health system prompt from file."""
+        prompt = load_prompt_from_file(cls.MENTAL_HEALTH_SYSTEM_PROMPT_FILE)
 
         if not prompt:
-            logger.error("MENTAL_HEALTH_SYSTEM_PROMPT not configured")
+            logger.error("MENTAL_HEALTH_SYSTEM_PROMPT file not found or empty")
             return "⚠️ CONFIGURATION ERROR: Mental health assistant system prompt not configured."
 
         return prompt
 
     @classmethod
     def get_conversation_guidelines(cls) -> str:
-        """Get the conversation guidelines from file or environment."""
-        prompt = load_prompt_from_file(
-            cls.CONVERSATION_GUIDELINES_FILE, os.getenv("CONVERSATION_GUIDELINES", "")
-        )
+        """Get the conversation guidelines from file."""
+        prompt = load_prompt_from_file(cls.CONVERSATION_GUIDELINES_FILE)
 
         if not prompt:
-            logger.error("CONVERSATION_GUIDELINES not configured")
+            logger.error("CONVERSATION_GUIDELINES file not found or empty")
             return "⚠️ CONFIGURATION ERROR: Conversation guidelines not configured."
 
         return prompt
 
     @classmethod
     def get_crisis_detection_prompt(cls) -> str:
-        """Get the crisis detection prompt from file or environment."""
-        prompt = load_prompt_from_file(
-            cls.CRISIS_DETECTION_PROMPT_FILE, os.getenv("CRISIS_DETECTION_PROMPT", "")
-        )
+        """Get the crisis detection prompt from file."""
+        prompt = load_prompt_from_file(cls.CRISIS_DETECTION_PROMPT_FILE)
 
         if not prompt:
-            logger.error("CRISIS_DETECTION_PROMPT not configured")
+            logger.error("CRISIS_DETECTION_PROMPT file not found or empty")
             return "⚠️ CONFIGURATION ERROR: Crisis detection not properly configured."
 
         return prompt
 
     @classmethod
     def get_memory_comprehensive_scoring_prompt(cls) -> str:
-        """Get the memory comprehensive scoring prompt from file or environment."""
-        prompt = load_prompt_from_file(
-            cls.MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE,
-            os.getenv("MEMORY_COMPREHENSIVE_SCORING_PROMPT", ""),
-        )
+        """Get the memory comprehensive scoring prompt from file."""
+        prompt = load_prompt_from_file(cls.MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE)
 
         if not prompt:
-            logger.error("MEMORY_COMPREHENSIVE_SCORING_PROMPT not configured")
+            logger.error("MEMORY_COMPREHENSIVE_SCORING_PROMPT file not found or empty")
             return "⚠️ CONFIGURATION ERROR: Comprehensive memory scoring not configured."
 
         return prompt

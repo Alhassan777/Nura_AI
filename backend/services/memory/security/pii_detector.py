@@ -42,7 +42,19 @@ class PIIDetector:
                 "description": "Email addresses",
             },
             "PHONE_NUMBER": {
-                "patterns": None,
+                "patterns": [
+                    # US phone number formats
+                    r"\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b",  # 555-123-4567, 555.123.4567, 555 123 4567
+                    r"\(\d{3}\)\s?\d{3}[-.\s]?\d{4}\b",  # (555) 123-4567, (555)123-4567
+                    r"\+1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b",  # +1-555-123-4567, +1.555.123.4567
+                    r"\b1[-.\s]?\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b",  # 1-555-123-4567, 1.555.123.4567
+                    r"\b\d{10}\b",  # 5551234567 (10 digits)
+                    # International formats
+                    r"\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9}\b",  # General international
+                    # Common patterns with context
+                    r"(?i)(phone|call|number|tel|mobile|cell)[:=\s]+[\+\d\(\)\-\.\s]{10,}\b",
+                    r"(?i)(reach me at|call me at|my number is)[\s:]+[\+\d\(\)\-\.\s]{10,}\b",
+                ],
                 "risk_level": "high",
                 "category": "contact_information",
                 "description": "Phone numbers",
@@ -130,6 +142,21 @@ class PIIDetector:
                 "risk_level": "low",
                 "category": "therapy_information",
                 "description": "Crisis hotlines",
+            },
+            "ADDRESS": {
+                "patterns": [
+                    # Street addresses
+                    r"\b\d+\s+[A-Z][a-zA-Z\s]+(Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd|Way|Place|Pl|Court|Ct)\b",
+                    # Full addresses with city, state, zip
+                    r"\b\d+\s+[A-Z][a-zA-Z\s]+,\s*[A-Z][a-zA-Z\s]+,\s*[A-Z]{2}\s+\d{5}(-\d{4})?\b",
+                    # Addresses with "I live at" context
+                    r"(?i)(I live at|my address is|located at)\s+\d+\s+[A-Z][a-zA-Z\s]+",
+                    # ZIP codes
+                    r"\b\d{5}(-\d{4})?\b",
+                ],
+                "risk_level": "high",
+                "category": "location_information",
+                "description": "Physical addresses",
             },
             "DATE_TIME": {
                 "patterns": None,

@@ -56,9 +56,6 @@ def get_configuration_status() -> Dict[str, Any]:
     if Config.VECTOR_DB_TYPE == "pinecone" or Config.USE_PINECONE:
         if not Config.PINECONE_API_KEY:
             missing_required.append("PINECONE_API_KEY")
-    elif Config.VECTOR_DB_TYPE == "vertex" or Config.USE_VERTEX_AI:
-        if not Config.GOOGLE_CLOUD_PROJECT:
-            missing_required.append("GOOGLE_CLOUD_PROJECT")
 
     has_issues = bool(missing_required or missing_optional)
 

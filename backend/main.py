@@ -1,23 +1,23 @@
 """
-Main FastAPI Application
-Centralized backend API that combines all modular components.
+Main FastAPI application for Nura backend.
+Includes all API routers and middleware.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import os
 
-# Import modular API routers
+# Import API routers
+from api.health import router as health_router
 from api.memory import router as memory_router
 from api.chat import router as chat_router
 from api.privacy import router as privacy_router
-from api.health import router as health_router
 
 # Import service routers
 from services.voice.api import router as voice_router
 
-# Set up logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,11 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Nura Backend API",
-    description="Modular mental health chat application backend",
-    version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    title="Nura Mental Health Assistant API",
+    description="Backend API for Nura mental health application",
+    version="1.0.0",
 )
 
 # Add CORS middleware
@@ -44,7 +42,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include modular API routers
+# Include API routers
 app.include_router(health_router, prefix="/api")
 app.include_router(memory_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
@@ -54,23 +52,33 @@ app.include_router(privacy_router, prefix="/api")
 app.include_router(voice_router, prefix="/api")
 
 
-# Root endpoint
 @app.get("/")
 async def root():
-    """Root endpoint with API information."""
+    """Root endpoint."""
     return {
-        "message": "Nura Backend API - Modular Architecture",
-        "version": "2.0.0",
-        "docs": "/docs",
-        "health": "/api/health",
-        "modules": {
+        "message": "Nura Mental Health Assistant API",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "health": "/api/health",
             "memory": "/api/memory",
             "chat": "/api/chat",
             "privacy": "/api/privacy",
-            "voice": "/api/voice",
         },
-        "architecture": "modular",
-        "description": "Mental health chat application with voice integration",
+    }
+
+
+@app.get("/api")
+async def api_info():
+    """API information endpoint."""
+    return {
+        "message": "Nura API v1.0.0",
+        "available_endpoints": [
+            "/api/health",
+            "/api/memory",
+            "/api/chat",
+            "/api/privacy",
+        ],
     }
 
 
@@ -100,4 +108,4 @@ if __name__ == "__main__":
 
     logger.info(f"🌐 Starting server on {host}:{port}")
 
-    uvicorn.run("main:app", host=host, port=port, reload=True, log_level="info")
+    uvicorn.run(app, host=host, port=port, reload=True, log_level="info")
