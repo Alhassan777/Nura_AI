@@ -64,16 +64,22 @@ class VectorStore:
         # Initialize Pinecone client
         self.pinecone_client = Pinecone(api_key=api_key)
 
+        # Configure embedding dimensions for NVIDIA model
+        # NVIDIA llama-text-embed-v2 supports: 1024, 2048, 768, 512, 384
+        self.embedding_dimension = 768  # Default compatible with both models
+
         # Check if index exists, create if not
         existing_indexes = [index.name for index in self.pinecone_client.list_indexes()]
 
         if index_name not in existing_indexes:
-            logger.info(f"Creating Pinecone index: {index_name}")
+            logger.info(
+                f"Creating Pinecone index: {index_name} with {self.embedding_dimension} dimensions"
+            )
 
             try:
                 self.pinecone_client.create_index(
                     name=index_name,
-                    dimension=768,  # Gemini embedding dimension
+                    dimension=self.embedding_dimension,  # Use configurable dimension
                     metric="cosine",
                     spec=ServerlessSpec(
                         cloud="aws",
@@ -86,7 +92,7 @@ class VectorStore:
                 try:
                     self.pinecone_client.create_index(
                         name=index_name,
-                        dimension=768,
+                        dimension=self.embedding_dimension,
                         metric="cosine",
                         spec=ServerlessSpec(cloud="gcp", region="us-central1"),
                     )
@@ -102,6 +108,9 @@ class VectorStore:
 
     def _initialize_chroma(self, persist_directory: str):
         """Initialize ChromaDB vector database."""
+        # For Chroma, we can use any dimension since it doesn't need to be pre-configured
+        self.embedding_dimension = 768  # Gemini embedding size
+
         # Initialize Chroma
         self.client = chromadb.PersistentClient(
             path=persist_directory,
@@ -228,6 +237,43 @@ class VectorStore:
 
         except Exception as e:
             logger.error(f"Failed to get similar memories for user {user_id}: {str(e)}")
+            return []
+
+    async def similarity_search(
+        self, query: str, user_id: str = None, k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for similar memories and return results in dictionary format.
+        This method is used by prompt_builder for context gathering.
+        """
+        try:
+            # Use the existing get_similar_memories method
+            memories = await self.get_similar_memories(user_id, query, limit=k)
+
+            # Convert to dictionary format with score
+            results = []
+            for memory in memories:
+                result = {
+                    "content": memory.content,
+                    "score": 0.8,  # Default score since we don't get exact scores from existing method
+                    "metadata": {
+                        "id": memory.id,
+                        "type": memory.type,
+                        "timestamp": (
+                            memory.timestamp.isoformat() if memory.timestamp else None
+                        ),
+                        **memory.metadata,
+                    },
+                }
+                results.append(result)
+
+            logger.debug(
+                f"Similarity search returned {len(results)} results for query: {query[:50]}..."
+            )
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed similarity search for query '{query}': {str(e)}")
             return []
 
     async def _get_similar_memories_pinecone(
@@ -553,16 +599,43 @@ class VectorStore:
         return memories
 
     async def _get_embedding(self, text: str) -> List[float]:
-        """Get embedding for text using Gemini."""
+        """Get embedding for text using the appropriate model for the vector store."""
         try:
-            # Use Gemini for embeddings (works for all vector databases)
-            response = genai.embed_content(
-                model="models/embedding-001",
-                content=text,
-                task_type="retrieval_document",
-            )
-            logger.debug(f"Generated embedding for text of length {len(text)}")
-            return response["embedding"]
+            if self.use_pinecone:
+                # Use Pinecone's native NVIDIA llama-text-embed-v2 for consistency
+                from pinecone import Pinecone
+
+                pc = Pinecone(api_key=Config.PINECONE_API_KEY)
+
+                response = pc.inference.embed(
+                    model="llama-text-embed-v2",
+                    inputs=[text],
+                    parameters={
+                        "input_type": "passage",
+                        "dimension": self.embedding_dimension,  # Fixed: 'dimension' not 'dimensions'
+                    },
+                )
+
+                # Fix: Access the embedding data correctly
+                # The response structure is: response.data[0].values
+                embedding = response.data[0].values
+                logger.debug(
+                    f"Generated NVIDIA embedding (dim={len(embedding)}) for text of length {len(text)}"
+                )
+                return embedding
+
+            else:
+                # Use Gemini for ChromaDB (works for local vector databases)
+                response = genai.embed_content(
+                    model="models/embedding-001",
+                    content=text,
+                    task_type="retrieval_document",
+                )
+                embedding = response["embedding"]
+                logger.debug(
+                    f"Generated Gemini embedding (dim={len(embedding)}) for text of length {len(text)}"
+                )
+                return embedding
 
         except Exception as e:
             logger.error(f"Failed to generate embedding for text: {str(e)}")

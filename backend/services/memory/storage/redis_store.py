@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 
 # Import centralized Redis utilities
@@ -176,3 +176,29 @@ class RedisStore:
         except Exception as e:
             logger.error(f"Failed to get memory count for user {user_id}: {str(e)}")
             return 0
+
+    async def get_recent_memories(self, user_id: str, limit: int = 10) -> List[Dict]:
+        """Get recent memories for a user in dictionary format for prompt building."""
+        try:
+            memories = await self.get_memories(user_id)
+
+            # Convert to dictionary format and limit results
+            recent_memories = []
+            for memory in memories[:limit]:
+                memory_dict = {
+                    "id": memory.id,
+                    "content": memory.content,
+                    "type": memory.type,
+                    "timestamp": memory.timestamp.isoformat(),
+                    "metadata": memory.metadata,
+                }
+                recent_memories.append(memory_dict)
+
+            logger.debug(
+                f"Retrieved {len(recent_memories)} recent memories for user {user_id}"
+            )
+            return recent_memories
+
+        except Exception as e:
+            logger.error(f"Failed to get recent memories for user {user_id}: {str(e)}")
+            return []

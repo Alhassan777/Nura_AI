@@ -13,6 +13,7 @@ from api.health import router as health_router
 from api.memory import router as memory_router
 from api.chat import router as chat_router
 from api.privacy import router as privacy_router
+from api.image_generation import router as image_generation_router
 
 # Import service routers
 from services.voice.api import router as voice_router
@@ -47,6 +48,7 @@ app.include_router(health_router, prefix="/api")
 app.include_router(memory_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(privacy_router, prefix="/api")
+app.include_router(image_generation_router, prefix="/api")
 
 # Include service routers
 app.include_router(voice_router, prefix="/api")
@@ -64,6 +66,7 @@ async def root():
             "memory": "/api/memory",
             "chat": "/api/chat",
             "privacy": "/api/privacy",
+            "image_generation": "/api/image-generation",
         },
     }
 
@@ -78,6 +81,7 @@ async def api_info():
             "/api/memory",
             "/api/chat",
             "/api/privacy",
+            "/api/image-generation",
         ],
     }
 
@@ -87,7 +91,7 @@ async def api_info():
 async def startup_event():
     """Application startup event."""
     logger.info("🚀 Starting Nura Backend API - Modular Architecture")
-    logger.info("📋 Available modules: Memory, Chat, Privacy, Voice")
+    logger.info("📋 Available modules: Memory, Chat, Privacy, Voice, Image Generation")
     logger.info("🔗 API Documentation: /docs")
     logger.info("❤️  Health Check: /api/health")
 

@@ -1,0 +1,6 @@
+# Additional dependencies for image generation service
+httpx>=0.24.0
+pillow>=9.0.0
+ 
+# Note: Add these to your main requirements.txt file
+# Also need to set environment variable: HF_TOKEN=your_huggingface_token 
