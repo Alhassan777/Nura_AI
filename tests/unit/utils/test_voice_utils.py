@@ -35,10 +35,10 @@ class TestCallMapping:
     @patch("utils.voice.get_redis_client")
     async def test_store_call_mapping_success(self, mock_get_redis):
         """Test successful call mapping storage."""
-        # Mock Redis client
+        # Mock Redis client with async methods
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.return_value = True
+        mock_redis.setex = AsyncMock(return_value=True)
 
         call_id = "call_123"
         customer_id = "customer_456"
@@ -65,7 +65,7 @@ class TestCallMapping:
         """Test call mapping storage with custom TTL."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.return_value = True
+        mock_redis.setex = AsyncMock(return_value=True)
 
         call_id = "call_123"
         customer_id = "customer_456"
@@ -83,7 +83,7 @@ class TestCallMapping:
         """Test call mapping storage when Redis fails."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.side_effect = Exception("Redis connection failed")
+        mock_redis.setex = AsyncMock(side_effect=Exception("Redis connection failed"))
 
         result = await store_call_mapping("call_123", "customer_456")
 
@@ -103,7 +103,7 @@ class TestCallMapping:
 
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = json.dumps(stored_data)
+        mock_redis.get = AsyncMock(return_value=json.dumps(stored_data))
 
         result = await get_customer_id(call_id)
 
@@ -116,7 +116,7 @@ class TestCallMapping:
         """Test customer ID retrieval when mapping doesn't exist."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = None
+        mock_redis.get = AsyncMock(return_value=None)
 
         result = await get_customer_id("nonexistent_call")
 
@@ -128,7 +128,7 @@ class TestCallMapping:
         """Test customer ID retrieval with corrupted data."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = "invalid json"
+        mock_redis.get = AsyncMock(return_value="invalid json")
 
         result = await get_customer_id("call_123")
 
@@ -147,7 +147,7 @@ class TestCallMapping:
 
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = json.dumps(stored_data)
+        mock_redis.get = AsyncMock(return_value=json.dumps(stored_data))
 
         result = await get_call_mapping(call_id)
 
@@ -163,7 +163,7 @@ class TestCallMapping:
         call_id = "call_123"
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.delete.return_value = 1  # 1 key deleted
+        mock_redis.delete = AsyncMock(return_value=1)  # 1 key deleted
 
         result = await delete_call_mapping(call_id)
 
@@ -176,7 +176,7 @@ class TestCallMapping:
         """Test call mapping deletion when key doesn't exist."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.delete.return_value = 0  # 0 keys deleted
+        mock_redis.delete = AsyncMock(return_value=0)  # 0 keys deleted
 
         result = await delete_call_mapping("nonexistent_call")
 
@@ -347,7 +347,7 @@ class TestConversationContext:
 
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.return_value = True
+        mock_redis.setex = AsyncMock(return_value=True)
 
         result = await store_conversation_context(call_id, context)
 
@@ -377,7 +377,7 @@ class TestConversationContext:
 
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.return_value = True
+        mock_redis.setex = AsyncMock(return_value=True)
 
         result = await store_conversation_context(
             call_id, context, ttl_minutes=custom_ttl
@@ -393,7 +393,7 @@ class TestConversationContext:
         """Test conversation context storage when Redis fails."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.setex.side_effect = Exception("Redis connection failed")
+        mock_redis.setex = AsyncMock(side_effect=Exception("Redis connection failed"))
 
         result = await store_conversation_context("call_123", {"user_id": "user_456"})
 
@@ -414,7 +414,7 @@ class TestConversationContext:
 
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = json.dumps(context)
+        mock_redis.get = AsyncMock(return_value=json.dumps(context))
 
         result = await get_conversation_context(call_id)
 
@@ -427,7 +427,7 @@ class TestConversationContext:
         """Test conversation context retrieval when context doesn't exist."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = None
+        mock_redis.get = AsyncMock(return_value=None)
 
         result = await get_conversation_context("nonexistent_call")
 
@@ -439,7 +439,7 @@ class TestConversationContext:
         """Test conversation context retrieval with corrupted data."""
         mock_redis = AsyncMock()
         mock_get_redis.return_value = mock_redis
-        mock_redis.get.return_value = "invalid json"
+        mock_redis.get = AsyncMock(return_value="invalid json")
 
         result = await get_conversation_context("call_123")
 
