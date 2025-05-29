@@ -13,7 +13,7 @@ from api.health import router as health_router
 from api.memory import router as memory_router
 from api.chat import router as chat_router
 from api.privacy import router as privacy_router
-from api.image_generation import router as image_generation_router
+# from api.image_generation import router as image_generation_router
 
 # Import service routers
 from services.voice.api import router as voice_router
@@ -48,7 +48,9 @@ app.include_router(health_router, prefix="/api")
 app.include_router(memory_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(privacy_router, prefix="/api")
-app.include_router(image_generation_router, prefix="/api")
+# The line `app.include_router(image_generation_router, prefix="/api")` is including the router
+# defined in the `image_generation_router` module into the FastAPI application `app`.
+# app.include_router(image_generation_router, prefix="/api")
 
 # Include service routers
 app.include_router(voice_router, prefix="/api")
