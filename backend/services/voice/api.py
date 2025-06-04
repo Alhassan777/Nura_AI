@@ -1,16 +1,23 @@
 """
 FastAPI router for Voice Service.
 Implements the blueprint architecture endpoints.
+SECURE: User-specific endpoints use JWT authentication - users can only access their own voice data.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import logging
 import time
+from fastapi.security import HTTPBearer
+import os
+import aiohttp
+
+# Import unified authentication system
+from utils.auth import get_current_user_id, get_authenticated_user, AuthenticatedUser
 
 # Import centralized utilities
 from utils.voice import (
@@ -22,16 +29,24 @@ from utils.voice import (
 from utils.redis_client import cache_set, cache_get
 
 from .database import get_db
-from .models import VoiceUser, Voice, VoiceCall, VoiceSchedule, CallSummary
+from models import Voice, VoiceCall, VoiceSchedule, CallSummary
 from .vapi_client import vapi_client
-from .webhook_handler import webhook_handler
+from .vapi_webhook_router import vapi_webhook_router
 from .queue_worker import voice_queue
 from .config import config
+from .user_integration import VoiceUserIntegration
+from .vapi_client import VapiClient
+from .scheduling_integration import SchedulingIntegration
 
 logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/voice", tags=["voice"])
+security = HTTPBearer()
+
+# Initialize services
+vapi_client = VapiClient()
+scheduling_integration = SchedulingIntegration()
 
 
 # Pydantic models for API
@@ -40,6 +55,11 @@ class CreateCallRequest(BaseModel):
     phone_number: Optional[str] = Field(
         None, description="Phone number for outbound calls"
     )
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class BrowserCallRequest(BaseModel):
+    assistant_id: str = Field(..., description="Vapi assistant ID")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -56,32 +76,6 @@ class VoiceMappingRequest(BaseModel):
     customerId: str
     mode: str
     phoneNumber: Optional[str] = None
-
-
-class VoiceProcessingResult(BaseModel):
-    success: bool
-    callId: str
-    customerId: Optional[str]
-    processingTimeMs: float
-    assistantReply: Optional[str] = None
-    crisisLevel: Optional[str] = None
-    memoryStored: bool = False
-    error: Optional[str] = None
-    timestamp: str
-    # Enhanced voice processing metadata
-    voiceOptimized: Optional[bool] = None
-    wordCount: Optional[int] = None
-    estimatedSpeechTime: Optional[float] = None
-    vapiDelivery: Optional[Dict[str, Any]] = None
-    controlUrlUsed: Optional[str] = None
-    requiresImmediateDelivery: Optional[bool] = None
-
-
-class VoiceWebhookEventRequest(BaseModel):
-    event: Dict[str, Any]
-    callId: str
-    receivedAt: str
-    source: str = "vapi_webhook"
 
 
 class VoiceResponse(BaseModel):
@@ -129,18 +123,10 @@ class SummaryResponse(BaseModel):
     created_at: datetime
 
 
-# Authentication dependency (simplified for now)
-async def get_current_user(request: Request) -> str:
-    """
-    Extract user ID from request.
-    In production, this would validate JWT tokens.
-    """
-    # For now, extract from header or use demo user
-    user_id = request.headers.get("X-User-ID", "demo-user-123")
-    return user_id
+# 🔐 PUBLIC ENDPOINTS (No JWT Required) - Webhooks, Health, Admin
 
 
-# Voice catalogue endpoints
+# Voice catalogue endpoints (public - for voice selection)
 @router.get("/voices", response_model=List[VoiceResponse])
 async def list_voices(db: Session = Depends(get_db)):
     """List available voices/assistants."""
@@ -157,37 +143,41 @@ async def get_voice(voice_id: str, db: Session = Depends(get_db)):
     return voice
 
 
+# 🔐 SECURE USER-SPECIFIC VOICE ENDPOINTS - JWT Authentication Required
+
+
 # Call management endpoints
 @router.post("/calls/browser")
-async def start_browser_call(
-    request: CreateCallRequest,
-    user_id: str = Depends(get_current_user),
-    db: Session = Depends(get_db),
+async def initiate_browser_call(
+    request: BrowserCallRequest, user_id: str = Depends(get_current_user_id)
 ):
-    """
-    Start a browser call (returns configuration for Web SDK).
-    This doesn't create the call directly - the frontend SDK does that.
-    """
+    """Initiate a browser-based voice call. JWT secured - user manages their own calls."""
     try:
-        # Validate assistant exists
-        voice = (
-            db.query(Voice)
-            .filter(Voice.assistant_id == request.assistant_id, Voice.is_active == True)
-            .first()
-        )
+        # Get user data from normalized system
+        user_data = await VoiceUserIntegration.get_user_for_voice(user_id)
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
 
-        if not voice:
-            raise HTTPException(status_code=400, detail="Invalid assistant ID")
+        # Record voice activity
+        await VoiceUserIntegration.record_voice_activity(
+            user_id,
+            "browser_call_initiated",
+            {"assistant_id": request.assistant_id},
+        )
 
         # Return configuration for frontend
         return {
             "assistantId": request.assistant_id,
-            "metadata": {"userId": user_id, "channel": "browser", **request.metadata},
+            "metadata": {
+                "userId": user_id,
+                "channel": "browser",
+                **request.metadata,
+            },
             "publicKey": config.VAPI_PUBLIC_KEY,
         }
 
     except Exception as e:
-        logger.error(f"Error starting browser call: {e}")
+        logger.error(f"Error starting browser call for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to start browser call")
 
 
@@ -195,66 +185,61 @@ async def start_browser_call(
 async def create_phone_call(
     request: CreateCallRequest,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Create an outbound phone call."""
+    """Create a phone call. JWT secured - user creates their own calls."""
     try:
-        if not request.phone_number:
-            raise HTTPException(
-                status_code=400, detail="Phone number required for phone calls"
-            )
-
-        # Validate assistant exists
-        voice = (
-            db.query(Voice)
-            .filter(Voice.assistant_id == request.assistant_id, Voice.is_active == True)
-            .first()
-        )
-
-        if not voice:
-            raise HTTPException(status_code=400, detail="Invalid assistant ID")
-
-        # Get user details
-        user = db.query(VoiceUser).filter(VoiceUser.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # Enqueue the call
-        job_id = await voice_queue.enqueue_call(
+        # Create call record
+        call = VoiceCall(
             user_id=user_id,
             assistant_id=request.assistant_id,
+            channel="phone",
+            status="initializing",
             phone_number=request.phone_number,
-            metadata=request.metadata,
+        )
+        db.add(call)
+        db.commit()
+        db.refresh(call)
+
+        # Initiate call with Vapi
+        result = await vapi_client.create_call(
+            assistant_id=request.assistant_id,
+            phone_number=request.phone_number,
+            metadata={
+                "userId": user_id,
+                "callId": call.id,
+                **request.metadata,
+            },
         )
 
-        return {
-            "job_id": job_id,
-            "status": "queued",
-            "message": "Call has been queued for processing",
-        }
+        # Update call with Vapi ID
+        call.vapi_call_id = result.get("id")
+        call.status = "connecting"
+        db.commit()
 
-    except HTTPException:
-        raise
+        logger.info(f"Created phone call {call.id} for user {user_id}")
+        return {"call_id": call.id, "vapi_call_id": call.vapi_call_id}
+
     except Exception as e:
-        logger.error(f"Error creating phone call: {e}")
+        logger.error(f"Error creating phone call for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to create phone call")
 
 
 @router.get("/calls", response_model=List[CallResponse])
 async def list_calls(
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
     limit: int = 50,
     offset: int = 0,
 ):
-    """List user's calls."""
+    """List user's calls. JWT secured - user can only see their own calls."""
     calls = (
         db.query(VoiceCall)
         .filter(VoiceCall.user_id == user_id)
-        .order_by(VoiceCall.created_at.desc())
-        .offset(offset)
+        .order_by(VoiceCall.started_at.desc())
         .limit(limit)
+        .offset(offset)
         .all()
     )
     return calls
@@ -263,19 +248,17 @@ async def list_calls(
 @router.get("/calls/{call_id}", response_model=CallResponse)
 async def get_call(
     call_id: str,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Get specific call details."""
+    """Get specific call details. JWT secured - user can only access their own calls."""
     call = (
         db.query(VoiceCall)
         .filter(VoiceCall.id == call_id, VoiceCall.user_id == user_id)
         .first()
     )
-
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
-
     return call
 
 
@@ -283,151 +266,297 @@ async def get_call(
 @router.post("/schedules", response_model=ScheduleResponse)
 async def create_schedule(
     request: CreateScheduleRequest,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Create a new voice call schedule."""
+    """Create a voice schedule via scheduling service API. JWT secured - user creates their own schedules."""
     try:
-        # Validate assistant exists
-        voice = (
-            db.query(Voice)
-            .filter(Voice.assistant_id == request.assistant_id, Voice.is_active == True)
-            .first()
-        )
+        # Prepare request for scheduling service
+        schedule_request = {
+            "name": request.name,
+            "description": f"Voice assistant schedule: {request.name}",
+            "schedule_type": "voice_checkup",
+            "cron_expression": request.cron_expression,
+            "timezone": request.timezone,
+            "reminder_method": "call",  # Default for voice schedules
+            "assistant_id": request.assistant_id,
+            "custom_metadata": {
+                "created_via": "voice_api",
+                "voice_assistant_id": request.assistant_id,
+                **request.metadata,
+            },
+        }
 
-        if not voice:
-            raise HTTPException(status_code=400, detail="Invalid assistant ID")
+        # Call scheduling service API
+        scheduling_api_base = config.get_api_endpoint("scheduling")
+        async with aiohttp.ClientSession() as session:
+            url = f"{scheduling_api_base}/schedules"
+            async with session.post(
+                url,
+                json=schedule_request,
+                params={"user_id": user_id},
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
 
-        # Validate cron expression
-        from croniter import croniter
+                if response.status == 200:
+                    result = await response.json()
+                    schedule_id = result.get("schedule_id")
 
-        if not croniter.is_valid(request.cron_expression):
-            raise HTTPException(status_code=400, detail="Invalid cron expression")
+                    # Create local voice schedule record for compatibility
+                    voice_schedule = VoiceSchedule(
+                        id=schedule_id,  # Use same ID as scheduling service
+                        user_id=user_id,
+                        name=request.name,
+                        assistant_id=request.assistant_id,
+                        cron_expression=request.cron_expression,
+                        timezone=request.timezone,
+                        next_run_at=datetime.fromisoformat(
+                            result.get("next_run_at").replace("Z", "+00:00")
+                        ),
+                        metadata=request.metadata,
+                    )
+                    db.add(voice_schedule)
+                    db.commit()
+                    db.refresh(voice_schedule)
 
-        # Calculate next run time
-        cron = croniter(request.cron_expression, datetime.utcnow())
-        next_run = cron.get_next(datetime)
+                    logger.info(
+                        f"Created voice schedule {schedule_id} for user {user_id}"
+                    )
+                    return voice_schedule
+                else:
+                    error_text = await response.text()
+                    logger.error(
+                        f"Scheduling service error: {response.status} - {error_text}"
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to create schedule via scheduling service",
+                    )
 
-        # Create schedule
-        schedule = VoiceSchedule(
-            user_id=user_id,
-            assistant_id=request.assistant_id,
-            name=request.name,
-            cron_expression=request.cron_expression,
-            timezone=request.timezone,
-            next_run_at=next_run,
-            custom_metadata=request.metadata,
-        )
-
-        db.add(schedule)
-        db.commit()
-        db.refresh(schedule)
-
-        return schedule
-
-    except HTTPException:
-        raise
+    except aiohttp.ClientError as e:
+        logger.error(f"Error calling scheduling service: {e}")
+        raise HTTPException(status_code=503, detail="Scheduling service unavailable")
     except Exception as e:
-        logger.error(f"Error creating schedule: {e}")
+        logger.error(f"Error creating schedule for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to create schedule")
 
 
 @router.get("/schedules", response_model=List[ScheduleResponse])
 async def list_schedules(
-    user_id: str = Depends(get_current_user), db: Session = Depends(get_db)
+    user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)
 ):
-    """List user's schedules."""
-    schedules = (
-        db.query(VoiceSchedule)
-        .filter(VoiceSchedule.user_id == user_id)
-        .order_by(VoiceSchedule.created_at.desc())
-        .all()
-    )
-    return schedules
+    """List user's voice schedules via scheduling service API. JWT secured - user can only see their own schedules."""
+    try:
+        # Call scheduling service API
+        scheduling_api_base = config.get_api_endpoint("scheduling")
+        async with aiohttp.ClientSession() as session:
+            url = f"{scheduling_api_base}/schedules"
+            async with session.get(
+                url,
+                params={"user_id": user_id, "schedule_type": "voice_checkup"},
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+
+                if response.status == 200:
+                    schedules_data = await response.json()
+
+                    # Convert to voice schedule format
+                    voice_schedules = []
+                    for schedule_data in schedules_data:
+                        voice_schedule = ScheduleResponse(
+                            id=schedule_data["id"],
+                            name=schedule_data["name"],
+                            assistant_id=schedule_data.get("assistant_id", ""),
+                            cron_expression=schedule_data["cron_expression"],
+                            timezone=schedule_data["timezone"],
+                            next_run_at=datetime.fromisoformat(
+                                schedule_data["next_run_at"].replace("Z", "+00:00")
+                            ),
+                            last_run_at=(
+                                datetime.fromisoformat(
+                                    schedule_data["last_run_at"].replace("Z", "+00:00")
+                                )
+                                if schedule_data.get("last_run_at")
+                                else None
+                            ),
+                            is_active=schedule_data["is_active"],
+                        )
+                        voice_schedules.append(voice_schedule)
+
+                    return voice_schedules
+                else:
+                    logger.error(f"Scheduling service error: {response.status}")
+                    # Fallback to local database
+                    schedules = (
+                        db.query(VoiceSchedule)
+                        .filter(VoiceSchedule.user_id == user_id)
+                        .order_by(VoiceSchedule.created_at.desc())
+                        .all()
+                    )
+                    return schedules
+
+    except aiohttp.ClientError as e:
+        logger.error(f"Error calling scheduling service: {e}")
+        # Fallback to local database
+        schedules = (
+            db.query(VoiceSchedule)
+            .filter(VoiceSchedule.user_id == user_id)
+            .order_by(VoiceSchedule.created_at.desc())
+            .all()
+        )
+        return schedules
 
 
 @router.put("/schedules/{schedule_id}")
 async def update_schedule(
     schedule_id: str,
     request: CreateScheduleRequest,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Update a schedule."""
-    schedule = (
-        db.query(VoiceSchedule)
-        .filter(VoiceSchedule.id == schedule_id, VoiceSchedule.user_id == user_id)
-        .first()
-    )
-
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-
+    """Update a voice schedule via scheduling service API. JWT secured - user can only update their own schedules."""
     try:
-        # Validate cron expression
-        from croniter import croniter
+        # Prepare update request
+        update_request = {
+            "name": request.name,
+            "description": f"Voice assistant schedule: {request.name}",
+            "cron_expression": request.cron_expression,
+            "timezone": request.timezone,
+            "assistant_id": request.assistant_id,
+            "custom_metadata": {
+                "updated_via": "voice_api",
+                "voice_assistant_id": request.assistant_id,
+                **request.metadata,
+            },
+        }
 
-        if not croniter.is_valid(request.cron_expression):
-            raise HTTPException(status_code=400, detail="Invalid cron expression")
+        # Call scheduling service API
+        scheduling_api_base = config.get_api_endpoint("scheduling")
+        async with aiohttp.ClientSession() as session:
+            url = f"{scheduling_api_base}/schedules/{schedule_id}"
+            async with session.put(
+                url,
+                json=update_request,
+                params={"user_id": user_id},
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
 
-        # Update schedule
-        schedule.name = request.name
-        schedule.assistant_id = request.assistant_id
-        schedule.cron_expression = request.cron_expression
-        schedule.timezone = request.timezone
-        schedule.custom_metadata = request.metadata
+                if response.status == 200:
+                    # Update local voice schedule record
+                    schedule = (
+                        db.query(VoiceSchedule)
+                        .filter(
+                            VoiceSchedule.id == schedule_id,
+                            VoiceSchedule.user_id == user_id,
+                        )
+                        .first()
+                    )
+                    if schedule:
+                        schedule.name = request.name
+                        schedule.assistant_id = request.assistant_id
+                        schedule.cron_expression = request.cron_expression
+                        schedule.timezone = request.timezone
+                        schedule.metadata = request.metadata
+                        db.commit()
 
-        # Recalculate next run time
-        cron = croniter(request.cron_expression, datetime.utcnow())
-        schedule.next_run_at = cron.get_next(datetime)
+                    logger.info(
+                        f"Updated voice schedule {schedule_id} for user {user_id}"
+                    )
+                    return {"success": True, "message": "Schedule updated successfully"}
+                elif response.status == 404:
+                    raise HTTPException(status_code=404, detail="Schedule not found")
+                else:
+                    error_text = await response.text()
+                    logger.error(
+                        f"Scheduling service error: {response.status} - {error_text}"
+                    )
+                    raise HTTPException(
+                        status_code=500, detail="Failed to update schedule"
+                    )
 
-        db.commit()
-        return {"message": "Schedule updated successfully"}
-
-    except HTTPException:
-        raise
+    except aiohttp.ClientError as e:
+        logger.error(f"Error calling scheduling service: {e}")
+        raise HTTPException(status_code=503, detail="Scheduling service unavailable")
     except Exception as e:
-        logger.error(f"Error updating schedule: {e}")
+        logger.error(f"Error updating schedule {schedule_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update schedule")
 
 
 @router.delete("/schedules/{schedule_id}")
 async def delete_schedule(
     schedule_id: str,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Delete a schedule."""
-    schedule = (
-        db.query(VoiceSchedule)
-        .filter(VoiceSchedule.id == schedule_id, VoiceSchedule.user_id == user_id)
-        .first()
-    )
+    """Delete a voice schedule via scheduling service API. JWT secured - user can only delete their own schedules."""
+    try:
+        # Call scheduling service API
+        scheduling_api_base = config.get_api_endpoint("scheduling")
+        async with aiohttp.ClientSession() as session:
+            url = f"{scheduling_api_base}/schedules/{schedule_id}"
+            async with session.delete(
+                url,
+                params={"user_id": user_id},
+                headers={"Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
 
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
+                if response.status == 200:
+                    # Delete local voice schedule record
+                    schedule = (
+                        db.query(VoiceSchedule)
+                        .filter(
+                            VoiceSchedule.id == schedule_id,
+                            VoiceSchedule.user_id == user_id,
+                        )
+                        .first()
+                    )
+                    if schedule:
+                        db.delete(schedule)
+                        db.commit()
 
-    db.delete(schedule)
-    db.commit()
+                    logger.info(
+                        f"Deleted voice schedule {schedule_id} for user {user_id}"
+                    )
+                    return {"success": True, "message": "Schedule deleted successfully"}
+                elif response.status == 404:
+                    raise HTTPException(status_code=404, detail="Schedule not found")
+                else:
+                    error_text = await response.text()
+                    logger.error(
+                        f"Scheduling service error: {response.status} - {error_text}"
+                    )
+                    raise HTTPException(
+                        status_code=500, detail="Failed to delete schedule"
+                    )
 
-    return {"message": "Schedule deleted successfully"}
+    except aiohttp.ClientError as e:
+        logger.error(f"Error calling scheduling service: {e}")
+        raise HTTPException(status_code=503, detail="Scheduling service unavailable")
+    except Exception as e:
+        logger.error(f"Error deleting schedule {schedule_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete schedule")
 
 
 # Summary endpoints
 @router.get("/summaries", response_model=List[SummaryResponse])
 async def list_summaries(
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
     limit: int = 50,
     offset: int = 0,
 ):
-    """List user's call summaries."""
+    """List user's call summaries. JWT secured - user can only see their own summaries."""
     summaries = (
         db.query(CallSummary)
-        .filter(CallSummary.user_id == user_id)
+        .join(VoiceCall)
+        .filter(VoiceCall.user_id == user_id)
         .order_by(CallSummary.created_at.desc())
-        .offset(offset)
         .limit(limit)
+        .offset(offset)
         .all()
     )
     return summaries
@@ -436,19 +565,18 @@ async def list_summaries(
 @router.get("/summaries/{summary_id}", response_model=SummaryResponse)
 async def get_summary(
     summary_id: str,
-    user_id: str = Depends(get_current_user),
+    user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Get specific call summary."""
+    """Get specific call summary. JWT secured - user can only access their own summaries."""
     summary = (
         db.query(CallSummary)
-        .filter(CallSummary.id == summary_id, CallSummary.user_id == user_id)
+        .join(VoiceCall)
+        .filter(CallSummary.id == summary_id, VoiceCall.user_id == user_id)
         .first()
     )
-
     if not summary:
         raise HTTPException(status_code=404, detail="Summary not found")
-
     return summary
 
 
@@ -538,66 +666,6 @@ async def delete_voice_mapping_endpoint(call_id: str):
         )
 
 
-# Voice processing endpoint (for memory service integration)
-@router.post("/process-event", response_model=VoiceProcessingResult)
-async def process_voice_webhook_event(request: VoiceWebhookEventRequest):
-    """Process voice webhook events from Vapi - the core voice processing pipeline."""
-    start_time = time.time()
-
-    try:
-        # Extract event details
-        event = request.event
-        call_id = request.callId
-        event_type = event.get("type") or event.get("eventType")
-
-        logger.info(f"🎯 Processing voice event: {event_type} for call {call_id}")
-
-        # Get customer ID from call mapping
-        customer_id = await get_customer_id(call_id)
-        if not customer_id:
-            logger.warning(f"No customer mapping found for call {call_id}")
-            processing_time = (time.time() - start_time) * 1000
-
-            return VoiceProcessingResult(
-                success=False,
-                callId=call_id,
-                customerId=None,
-                processingTimeMs=processing_time,
-                error="Customer mapping not found for call",
-                timestamp=datetime.utcnow().isoformat(),
-            )
-
-        logger.info(f"📋 Found customer {customer_id} for call {call_id}")
-
-        # For now, return basic processing result
-        # The actual processing logic would integrate with memory service
-        processing_time = (time.time() - start_time) * 1000
-
-        return VoiceProcessingResult(
-            success=True,
-            callId=call_id,
-            customerId=customer_id,
-            processingTimeMs=processing_time,
-            assistantReply="Voice processing completed",
-            crisisLevel="SUPPORT",
-            memoryStored=False,
-            timestamp=datetime.utcnow().isoformat(),
-        )
-
-    except Exception as e:
-        processing_time = (time.time() - start_time) * 1000
-        logger.error(f"❌ Voice processing failed for call {call_id}: {str(e)}")
-
-        return VoiceProcessingResult(
-            success=False,
-            callId=call_id,
-            customerId=customer_id if "customer_id" in locals() else None,
-            processingTimeMs=processing_time,
-            error=str(e),
-            timestamp=datetime.utcnow().isoformat(),
-        )
-
-
 # Metrics endpoints
 @router.get("/metrics/latency")
 async def get_voice_latency_metrics(date: str = None):
@@ -658,41 +726,6 @@ async def get_voice_latency_metrics(date: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Webhook endpoint
-@router.post("/webhook")
-async def handle_vapi_webhook(request: Request):
-    """
-    Handle incoming Vapi webhooks.
-    This processes call events and stores summaries.
-    """
-    try:
-        # Get raw body and signature
-        body = await request.body()
-        signature = request.headers.get("x-vapi-signature", "")
-
-        # Verify signature
-        if not webhook_handler.verify_signature(body, signature):
-            raise HTTPException(status_code=401, detail="Invalid signature")
-
-        # Parse JSON payload
-        payload = await request.json()
-
-        # Process webhook
-        success = await webhook_handler.handle_webhook(payload, signature)
-
-        if success:
-            return JSONResponse(content={"status": "success"}, status_code=200)
-        else:
-            return JSONResponse(content={"status": "error"}, status_code=400)
-
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        # Always return 200 to Vapi to avoid retries
-        return JSONResponse(
-            content={"status": "error", "message": str(e)}, status_code=200
-        )
-
-
 # Admin endpoints for voice management
 @router.post("/admin/voices")
 async def create_voice(
@@ -725,12 +758,17 @@ async def create_voice(
         raise HTTPException(status_code=500, detail="Failed to create voice")
 
 
-# Health check
-@router.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "service": "voice",
-    }
+@router.get("/users/{user_id}")
+async def get_voice_user(user_id: str):
+    """Get user data for voice service (using normalized user system)."""
+    try:
+        user_data = await VoiceUserIntegration.get_user_for_voice(user_id)
+
+        if not user_data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {"success": True, "user": user_data}
+
+    except Exception as e:
+        logger.error(f"Error getting voice user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,8 +1,16 @@
 """
-Refactored Memory Service using modular processors.
-Main orchestrator for memory operations.
+Memory Service - Central memory management orchestrator.
+
+This service handles the complete memory processing workflow:
+1. Creating base memory items from user input
+2. Processing memory components (conversation chunks, themes, insights)
+3. Scoring components for relevance and permanence
+4. Dual storage strategy (short-term Redis + long-term vector store)
+5. PII detection and user consent management
+6. Privacy-compliant retrieval and GDPR operations
 """
 
+import asyncio
 import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -12,17 +20,17 @@ from dataclasses import asdict
 from .types import MemoryItem, MemoryScore, MemoryContext, MemoryConfig, MemoryStats
 from .storage.redis_store import RedisStore
 from .storage.vector_store import VectorStore
-from .scoring.gemini_scorer import GeminiScorer
-from .security.pii_detector import PIIDetector
-from .audit.audit_logger import AuditLogger
+from utils.scoring.gemini_scorer import GeminiScorer
+from ..privacy.security.pii_detector import PIIDetector
+from services.audit.audit_logger import AuditLogger
 from .config import Config
 
-# Import processors
-from .processors.memory_processor import MemoryProcessor
-from .processors.storage_processor import StorageProcessor
-from .processors.privacy_processor import PrivacyProcessor
-from .processors.retrieval_processor import RetrievalProcessor
-from .processors.gdpr_processor import GDPRProcessor
+# Import processors (now in memory service root)
+from .memory_processor import MemoryProcessor
+from .storage_processor import StorageProcessor
+from .retrieval_processor import RetrievalProcessor
+from ..privacy.processors.privacy_processor import PrivacyProcessor
+from ..privacy.processors.gdpr_processor import GDPRProcessor
 
 
 class MemoryService:
@@ -39,7 +47,7 @@ class MemoryService:
                 raise e
 
         # Initialize components
-        self.redis_store = RedisStore(Config.REDIS_URL)
+        self.redis_store = RedisStore()
 
         # Initialize vector store based on configuration
         self.vector_store = VectorStore(
@@ -62,14 +70,14 @@ class MemoryService:
         self.storage_processor = StorageProcessor(
             self.redis_store, self.vector_store, self.pii_detector, self.audit_logger
         )
-        self.privacy_processor = PrivacyProcessor(
-            self.redis_store, self.vector_store, self.pii_detector, self.audit_logger
-        )
         self.retrieval_processor = RetrievalProcessor(
             self.redis_store, self.vector_store, self.audit_logger
         )
+        self.privacy_processor = PrivacyProcessor(
+            self.redis_store, self.vector_store, self.pii_detector, self.audit_logger
+        )
         self.gdpr_processor = GDPRProcessor(
-            self.redis_store, self.vector_store, self.audit_logger
+            self.redis_store, self.vector_store, self.pii_detector, self.audit_logger
         )
 
     async def process_memory(
@@ -329,7 +337,7 @@ class MemoryService:
     async def get_chat_session_summary(self, user_id: str) -> Dict[str, Any]:
         """Get a summary of chat memories for user review and selection."""
         # Get all short-term memories (chat session)
-        short_term_memories = await self.redis_store.get_memories(user_id)
+        short_term_memories = await self.redis_store.get_user_memories(user_id)
 
         # Filter for chat messages only
         chat_memories = [
@@ -414,7 +422,7 @@ class MemoryService:
         results = {"kept": [], "removed": [], "anonymized": [], "errors": []}
 
         # Get current short-term memories
-        short_term_memories = await self.redis_store.get_memories(user_id)
+        short_term_memories = await self.redis_store.get_user_memories(user_id)
 
         for memory in short_term_memories:
             choice = memory_choices.get(memory.id, "keep")  # Default to keep

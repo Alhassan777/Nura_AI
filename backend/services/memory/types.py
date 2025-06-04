@@ -6,12 +6,16 @@ from typing import List, Optional, Dict, Any
 @dataclass
 class MemoryItem:
     id: str
-    userId: str
     content: str
     type: str
-    metadata: Dict[str, Any]
     timestamp: datetime
+    metadata: Dict[str, Any]
     embedding: Optional[List[float]] = None
+
+    @property
+    def user_id(self) -> Optional[str]:
+        """Get user_id from metadata for consistency with storage systems."""
+        return self.metadata.get("user_id")
 
 
 @dataclass

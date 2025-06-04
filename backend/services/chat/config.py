@@ -10,8 +10,14 @@ from ..memory.config import Config as BaseConfig
 class ChatConfig(BaseConfig):
     """Chat service configuration extending base memory config."""
 
-    # Supabase Database Configuration
+    # Supabase Configuration - reuse existing SUPABASE_URL
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_DATABASE_PASSWORD: str = os.getenv("SUPABASE_DATABASE_PASSWORD", "")
+
+    # Legacy: Direct database URL (takes priority if set)
     SUPABASE_DATABASE_URL: str = os.getenv("SUPABASE_DATABASE_URL", "")
+
+    # Fallback individual components
     SUPABASE_DB_HOST: str = os.getenv("SUPABASE_DB_HOST", "localhost")
     SUPABASE_DB_PORT: str = os.getenv("SUPABASE_DB_PORT", "5432")
     SUPABASE_DB_NAME: str = os.getenv("SUPABASE_DB_NAME", "postgres")
@@ -56,19 +62,30 @@ class ChatConfig(BaseConfig):
         cls.validate()
 
         # Check Supabase configuration
-        if not cls.SUPABASE_DATABASE_URL:
-            if not all(
-                [cls.SUPABASE_DB_HOST, cls.SUPABASE_DB_NAME, cls.SUPABASE_DB_USER]
-            ):
-                raise ValueError(
-                    "Either SUPABASE_DATABASE_URL or individual Supabase DB components "
-                    "(SUPABASE_DB_HOST, SUPABASE_DB_NAME, SUPABASE_DB_USER) must be set"
-                )
+        if not cls.get_database_url():
+            raise ValueError(
+                "Database configuration missing. Please set either:\n"
+                "1. SUPABASE_URL + SUPABASE_DATABASE_PASSWORD, or\n"
+                "2. SUPABASE_DATABASE_URL, or\n"
+                "3. Individual DB components (SUPABASE_DB_HOST, etc.)"
+            )
 
     @classmethod
     def get_database_url(cls) -> str:
-        """Get the complete database URL for Supabase."""
+        """Get the complete database URL for Supabase with smart auto-generation."""
+
+        # Option 1: Direct database URL (highest priority)
         if cls.SUPABASE_DATABASE_URL:
             return cls.SUPABASE_DATABASE_URL
 
+        # Option 2: Auto-generate from SUPABASE_URL + password (recommended)
+        if cls.SUPABASE_URL and cls.SUPABASE_DATABASE_PASSWORD:
+            # Extract project ref from SUPABASE_URL
+            # Example: https://ehbrqbzlsabttncyfkkb.supabase.co -> ehbrqbzlsabttncyfkkb
+            project_ref = cls.SUPABASE_URL.replace("https://", "").replace(
+                ".supabase.co", ""
+            )
+            return f"postgresql://postgres:{cls.SUPABASE_DATABASE_PASSWORD}@db.{project_ref}.supabase.co:5432/postgres"
+
+        # Option 3: Individual components (fallback)
         return f"postgresql://{cls.SUPABASE_DB_USER}:{cls.SUPABASE_DB_PASSWORD}@{cls.SUPABASE_DB_HOST}:{cls.SUPABASE_DB_PORT}/{cls.SUPABASE_DB_NAME}"

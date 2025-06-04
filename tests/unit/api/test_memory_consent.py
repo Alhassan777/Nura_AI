@@ -533,18 +533,13 @@ class TestConsentUISupport:
             assert data["analysis"]["pii_items_detected"] == 3
 
     def test_consent_recommendations(self, test_client):
-        """Test AI-powered consent recommendations."""
+        """Test simplified consent recommendations based on privacy level only."""
         user_id = "test-user-123"
         recommendation_request = {
             "content": "Dr. Jane Smith at Psychology Associates (555-0123) prescribed new medication.",
             "user_preferences": {
                 "privacy_level": "medium",
                 "therapeutic_priority": "high",
-                "previous_choices": {
-                    "PERSON": "usually_anonymize",
-                    "PHONE_NUMBER": "usually_remove",
-                    "ORGANIZATION": "usually_keep",
-                },
             },
         }
 
@@ -552,29 +547,28 @@ class TestConsentUISupport:
             "recommended_choices": {
                 "Dr. Jane Smith": {
                     "action": "anonymize",
-                    "confidence": 0.85,
-                    "reasoning": "Based on your medium privacy preference and history of anonymizing healthcare provider names",
+                    "confidence": 0.80,
+                    "reasoning": "Medium privacy + high risk: anonymizing person",
                 },
                 "Psychology Associates": {
                     "action": "keep",
-                    "confidence": 0.90,
-                    "reasoning": "Organization names typically kept based on your preferences",
+                    "confidence": 0.80,
+                    "reasoning": "Medium privacy + lower risk: keeping organization",
                 },
                 "(555-0123)": {
-                    "action": "remove",
-                    "confidence": 0.95,
-                    "reasoning": "Phone numbers consistently removed in your previous choices",
+                    "action": "anonymize",
+                    "confidence": 0.80,
+                    "reasoning": "Medium privacy + high risk: anonymizing phone number",
                 },
             },
             "overall_assessment": {
-                "privacy_score": 0.80,
-                "therapeutic_value_retention": 0.85,
-                "alignment_with_preferences": 0.90,
-                "recommendation_confidence": "high",
+                "privacy_score": 0.70,
+                "therapeutic_value_retention": 0.80,
+                "recommendation_confidence": "medium",
             },
             "alternative_suggestion": {
-                "description": "Consider keeping organization name for better therapeutic context",
-                "impact": "Minimal privacy reduction, improved therapeutic relevance",
+                "description": "Adjust your privacy level in settings for different default recommendations",
+                "impact": "Higher privacy = more anonymization, Lower privacy = more context retention",
             },
         }
 
@@ -596,4 +590,4 @@ class TestConsentUISupport:
             assert (
                 data["recommended_choices"]["Dr. Jane Smith"]["action"] == "anonymize"
             )
-            assert data["overall_assessment"]["recommendation_confidence"] == "high"
+            assert data["overall_assessment"]["recommendation_confidence"] == "medium"

@@ -15,8 +15,9 @@ from utils.redis_client import get_redis_client
 
 from .config import config
 from .vapi_client import vapi_client
-from .models import VoiceSchedule, VoiceCall, VoiceUser
-from .database import get_db_session
+from models import VoiceSchedule, VoiceCall
+from .database import get_db
+from .user_integration import VoiceUserIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ class VoiceCallQueue:
             Job ID if successful
         """
         try:
-            with get_db_session() as db:
+            with get_db() as db:
                 schedule = (
                     db.query(VoiceSchedule)
                     .filter(
@@ -103,11 +104,11 @@ class VoiceCallQueue:
                     logger.error(f"Schedule {schedule_id} not found or inactive")
                     return None
 
-                # Get user details
-                user = (
-                    db.query(VoiceUser).filter(VoiceUser.id == schedule.user_id).first()
+                # Get user details using centralized user system
+                user_data = await VoiceUserIntegration.get_user_for_voice(
+                    schedule.user_id
                 )
-                if not user or not user.phone:
+                if not user_data or not user_data.get("phone_number"):
                     logger.error(
                         f"User {schedule.user_id} not found or has no phone number"
                     )
@@ -123,7 +124,7 @@ class VoiceCallQueue:
                 job_id = await self.enqueue_call(
                     user_id=schedule.user_id,
                     assistant_id=schedule.assistant_id,
-                    phone_number=user.phone,
+                    phone_number=user_data["phone_number"],
                     metadata=metadata,
                 )
 
@@ -181,7 +182,7 @@ class VoiceCallQueue:
             )
 
             # Store call record
-            with get_db_session() as db:
+            with get_db() as db:
                 call_record = VoiceCall(
                     vapi_call_id=call_response["id"],
                     user_id=job["user_id"],
@@ -276,7 +277,7 @@ class ScheduleWorker:
     async def _check_schedules(self):
         """Check for schedules that need to be executed."""
         try:
-            with get_db_session() as db:
+            with get_db() as db:
                 current_time = datetime.utcnow()
 
                 # Find schedules ready to run

@@ -23,8 +23,8 @@ class TestEmotionVisualizerPipeline:
     def mock_prompt_builder(self):
         mock = AsyncMock(spec=PromptBuilder)
 
-        # Read the actual prompt template
-        with open("backend/services/memory/prompts/photo_generation.txt", "r") as f:
+        # Read the actual prompt template from the centralized chat prompts directory
+        with open("backend/utils/prompts/chat/photo_generation.txt", "r") as f:
             template = f.read()
 
         def format_template(context):

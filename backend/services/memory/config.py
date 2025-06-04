@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Get the directory where this config file is located
 CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
-PROMPTS_DIR = os.path.join(CONFIG_DIR, "prompts")
+# Updated to use the centralized chat prompts directory
+PROMPTS_DIR = os.path.join(CONFIG_DIR, "..", "..", "utils", "prompts", "chat")
 
 
 def load_prompt_from_file(file_path: str, fallback_content: str = "") -> str:
@@ -62,13 +63,6 @@ class Config:
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "models/gemini-2.0-flash")
     GEMINI_EMBEDDING_MODEL: str = os.getenv(
         "GEMINI_EMBEDDING_MODEL", "models/gemini-2.0-flash"
-    )
-
-    # JWT configuration (optional - not used currently)
-    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
-    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
-        os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30")
     )
 
     # Service configuration
@@ -187,10 +181,6 @@ The Memory Service will not function properly without these configurations.
             warnings.append(
                 "CHROMA_PERSIST_DIR not set - using default ./chroma directory"
             )
-
-        if cls.GEMINI_MODEL == "gemini-pro":
-            warnings.append("GEMINI_MODEL not set - using default gemini-pro")
-
         # Vector database warnings
         if cls.VECTOR_DB_TYPE == "chroma":
             warnings.append("Using ChromaDB (local) - consider Pinecone for production")

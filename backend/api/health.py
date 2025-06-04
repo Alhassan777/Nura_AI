@@ -1,16 +1,14 @@
 """
 Health API Module
 Handles health checks, configuration testing, and system status endpoints.
+Consolidated health monitoring for the entire Nura application.
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
-import asyncio
-
-# Import utilities
-from utils.redis_client import get_redis_client
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,57 +24,14 @@ def get_configuration_status() -> Dict[str, Any]:
     missing_required = []
     missing_optional = []
 
-    # Check required configs based on actual Config validation logic
+    # Check required configs
     if not Config.GOOGLE_API_KEY:
         missing_required.append("GOOGLE_API_KEY")
 
-    # Check vector database specific requirements
+    # Check vector database requirements
     if Config.VECTOR_DB_TYPE == "pinecone" or Config.USE_PINECONE:
         if not Config.PINECONE_API_KEY:
             missing_required.append("PINECONE_API_KEY")
-
-    # Check optional configs - only flag if they're actually missing/broken
-    try:
-        prompt = Config.get_mental_health_system_prompt()
-        if "CONFIGURATION ERROR" in prompt:
-            missing_optional.append("MENTAL_HEALTH_SYSTEM_PROMPT")
-    except:
-        missing_optional.append("MENTAL_HEALTH_SYSTEM_PROMPT")
-
-    try:
-        prompt = Config.get_conversation_guidelines()
-        if "CONFIGURATION ERROR" in prompt:
-            missing_optional.append("CONVERSATION_GUIDELINES")
-    except:
-        missing_optional.append("CONVERSATION_GUIDELINES")
-
-    try:
-        prompt = Config.get_crisis_detection_prompt()
-        if "CONFIGURATION ERROR" in prompt:
-            missing_optional.append("CRISIS_DETECTION_PROMPT")
-    except:
-        missing_optional.append("CRISIS_DETECTION_PROMPT")
-
-    try:
-        prompt = Config.get_memory_comprehensive_scoring_prompt()
-        if "CONFIGURATION ERROR" in prompt:
-            missing_optional.append("MEMORY_COMPREHENSIVE_SCORING_PROMPT")
-    except:
-        missing_optional.append("MEMORY_COMPREHENSIVE_SCORING_PROMPT")
-
-    # Only flag these if they're using defaults and might cause issues
-    if Config.REDIS_URL == "redis://localhost:6379":
-        # Only add as optional if Redis is actually not accessible
-        try:
-            # Create a simple async function to test Redis connection
-            async def test_redis():
-                redis_client = await get_redis_client()
-                await redis_client.ping()
-
-            # Run the async test
-            asyncio.create_task(test_redis())
-        except:
-            missing_optional.append("REDIS_URL - Redis not accessible")
 
     has_issues = bool(missing_required or missing_optional)
 
@@ -93,10 +48,9 @@ def get_configuration_status() -> Dict[str, Any]:
     }
 
 
-# Health endpoints
 @router.get("/")
 async def health_check():
-    """Health check endpoint with configuration status."""
+    """Main health check endpoint - used by Docker, frontend, and monitoring."""
     config_status = get_configuration_status()
 
     return {
@@ -105,8 +59,8 @@ async def health_check():
         ),
         "message": "Nura Backend Service is running",
         "configuration": config_status,
-        "timestamp": str(__import__("datetime").datetime.utcnow()),
-        "version": "2025-05-26-modular",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "2025-05-26-consolidated",
         "services": {
             "memory": "active",
             "chat": "active",
@@ -118,7 +72,7 @@ async def health_check():
 
 @router.get("/config/test")
 async def test_configuration():
-    """Test endpoint to verify configuration and demonstrate error handling."""
+    """Test endpoint to verify configuration."""
     config_status = get_configuration_status()
 
     if config_status["has_configuration_issues"]:
@@ -183,6 +137,8 @@ async def get_service_status():
 
         # Test Redis connection
         try:
+            from utils.redis_client import get_redis_client
+
             redis_client = await get_redis_client()
             await redis_client.ping()
             services_status["redis"] = {
@@ -193,6 +149,37 @@ async def get_service_status():
             services_status["redis"] = {
                 "status": "error",
                 "message": f"Redis connection failed: {str(e)}",
+            }
+
+        # Test chat service (database connection)
+        try:
+            from services.chat.database import get_db
+
+            db = next(get_db())
+            db.execute("SELECT 1")
+            services_status["chat"] = {
+                "status": "healthy",
+                "message": "Chat service database connected",
+            }
+        except Exception as e:
+            services_status["chat"] = {
+                "status": "error",
+                "message": f"Chat service error: {str(e)}",
+            }
+
+        # Test assistant service configuration
+        try:
+            from services.assistant.mental_health_assistant import MentalHealthAssistant
+
+            assistant = MentalHealthAssistant()
+            services_status["assistant"] = {
+                "status": "healthy",
+                "message": "Assistant service operational",
+            }
+        except Exception as e:
+            services_status["assistant"] = {
+                "status": "error",
+                "message": f"Assistant service error: {str(e)}",
             }
 
         # Overall status
@@ -207,9 +194,48 @@ async def get_service_status():
         return {
             "overall_status": overall_status,
             "services": services_status,
-            "timestamp": str(__import__("datetime").datetime.utcnow()),
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Error checking service status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/detailed")
+async def get_detailed_health():
+    """Get detailed health information including metrics and diagnostics."""
+    try:
+        basic_health = await health_check()
+        service_status = await get_service_status()
+
+        # Add additional diagnostic information
+        diagnostic_info = {
+            "system_info": {
+                "python_version": "3.12+",
+                "framework": "FastAPI",
+                "architecture": "microservices",
+            },
+            "feature_flags": {
+                "voice_service": True,
+                "memory_storage": True,
+                "chat_service": True,
+                "image_generation": True,
+            },
+            "security": {
+                "jwt_authentication": True,
+                "cors_enabled": True,
+                "rate_limiting": False,  # Add if implemented
+            },
+        }
+
+        return {
+            **basic_health,
+            "service_details": service_status["services"],
+            "diagnostics": diagnostic_info,
+            "health_check_type": "detailed",
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting detailed health: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

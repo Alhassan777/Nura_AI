@@ -12,6 +12,8 @@ from .prompt_builder import PromptBuilder
 from .image_generator import ImageGenerator
 from ..memory.storage.redis_store import RedisStore
 from ..memory.storage.vector_store import VectorStore
+from models import GeneratedImage
+from utils.database import get_db
 
 
 class EmotionVisualizer:
@@ -35,6 +37,7 @@ class EmotionVisualizer:
         include_long_term: bool = False,
         save_locally: bool = False,
         identified_emotion: Optional[str] = None,
+        name: Optional[str] = None,  # New: user-provided name
     ) -> Dict[str, Any]:
         """
         Create an image representation of user's emotional state or ideas.
@@ -45,6 +48,7 @@ class EmotionVisualizer:
             include_long_term: Whether to include long-term memory context
             save_locally: Whether to save the generated image locally
             identified_emotion: Optional pre-identified emotion to guide generation
+            name: Optional user-provided name for the image
 
         Returns:
             Dictionary containing image generation results and metadata
@@ -65,13 +69,16 @@ class EmotionVisualizer:
                     "context_analysis": context["input_analysis"],
                 }
 
-            # Step 3: Generate the visual prompt using LLM
-            visual_prompt_result = await self._generate_visual_prompt(context)
+            # Step 3: Generate the visual prompt and name using LLM
+            visual_prompt_result = await self._generate_visual_prompt_with_name(context)
 
             if not visual_prompt_result["success"]:
                 return visual_prompt_result
 
             visual_prompt = visual_prompt_result["visual_prompt"]
+            suggested_name = visual_prompt_result.get("suggested_name")
+            # Use user-provided name if given, else LLM-suggested name
+            image_name = name or suggested_name
 
             # Step 4: Determine emotion type for generation parameters
             emotion_type = self._analyze_emotion_type(context)
@@ -103,7 +110,29 @@ class EmotionVisualizer:
                     image_result["image_data"], filename
                 )
 
-            # Step 7: Return complete result
+            # Step 7: Store generated image in the database
+            try:
+                with get_db() as db:
+                    generated_image = GeneratedImage(
+                        user_id=user_id,
+                        prompt=visual_prompt,
+                        image_data=image_result["image_data"],
+                        image_format=image_result.get("image_format", "png"),
+                        name=image_name,
+                        image_metadata={
+                            "emotion_type": emotion_type,
+                            "generation_params": generation_params,
+                            "context_analysis": context["input_analysis"],
+                            "model_used": image_result["model"],
+                        },
+                    )
+                    db.add(generated_image)
+                    db.commit()
+            except Exception as db_exc:
+                # Log but do not fail the main flow
+                print(f"[WARN] Failed to store generated image in DB: {db_exc}")
+
+            # Step 8: Return complete result
             return {
                 "success": True,
                 "image_data": image_result["image_data"],
@@ -124,41 +153,49 @@ class EmotionVisualizer:
                 "message": f"An unexpected error occurred: {str(e)}",
             }
 
-    async def _generate_visual_prompt(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate a visual prompt using the LLM and context data."""
-
+    async def _generate_visual_prompt_with_name(
+        self, context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Generate a visual prompt and a suggested name using the LLM and context data."""
         try:
-            # Format the prompt template with context
+            # Format the prompt template with context, requesting a name
             formatted_prompt = self.prompt_builder.format_prompt_template(context)
-
-            # Call LLM to generate visual scene description (synchronous call wrapped in async)
+            prompt_with_name = (
+                formatted_prompt
+                + "\n\nAdditionally, provide a short, descriptive name for this image (max 6 words) on a new line starting with 'Name: '."
+            )
             response = await asyncio.to_thread(
                 self.llm_client.model.generate_content,
-                formatted_prompt,
+                prompt_with_name,
                 generation_config=self.llm_client.metadata_config,
             )
-
             if not response or not response.text or len(response.text.strip()) < 20:
                 return {
                     "success": False,
                     "error": "llm_response_insufficient",
                     "message": "LLM failed to generate sufficient visual description",
                 }
-
-            # Clean up the response
-            visual_prompt = self._clean_visual_prompt(response.text)
-
+            # Parse the response for prompt and name
+            lines = response.text.strip().split("\n")
+            visual_prompt = ""
+            suggested_name = None
+            for line in lines:
+                if line.strip().lower().startswith("name:"):
+                    suggested_name = line.split(":", 1)[-1].strip()
+                else:
+                    visual_prompt += line.strip() + " "
+            visual_prompt = visual_prompt.strip()
             return {
                 "success": True,
                 "visual_prompt": visual_prompt,
+                "suggested_name": suggested_name,
                 "raw_llm_response": response.text,
             }
-
         except Exception as e:
             return {
                 "success": False,
                 "error": "llm_error",
-                "message": f"Error generating visual prompt: {str(e)}",
+                "message": f"Error generating visual prompt and name: {str(e)}",
             }
 
     def _clean_visual_prompt(self, llm_response: str) -> str:

@@ -4,14 +4,162 @@ Common database operations and connection management.
 """
 
 import logging
-from typing import Optional, Dict, Any, List, Union
-from contextlib import asynccontextmanager
+import os
+from typing import Optional, Dict, Any, List, Union, Generator
+from contextlib import asynccontextmanager, contextmanager
 import asyncio
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
+
+
+class DatabaseConfig:
+    """Centralized database configuration for all Nura services."""
+
+    @staticmethod
+    def get_database_url(service_name: Optional[str] = None) -> str:
+        """
+        Get database URL with smart fallback logic.
+
+        Priority:
+        1. Service-specific URL (e.g., VOICE_DATABASE_URL)
+        2. SUPABASE_DATABASE_URL (production)
+        3. DATABASE_URL (fallback)
+        4. Localhost (development)
+
+        Args:
+            service_name: Optional service name for service-specific URL
+
+        Returns:
+            Database URL string
+        """
+        # Try service-specific URL first
+        if service_name:
+            service_url = os.getenv(f"{service_name.upper()}_DATABASE_URL")
+            if service_url:
+                return service_url
+
+        # Try Supabase (production)
+        supabase_url = os.getenv("SUPABASE_DATABASE_URL")
+        if supabase_url:
+            return supabase_url
+
+        # Try generic DATABASE_URL
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            return database_url
+
+        # Fallback to localhost for development
+        return "postgresql://localhost:5432/nura_main"
+
+
+class DatabaseManager:
+    """Centralized database session manager for all services."""
+
+    def __init__(
+        self, service_name: Optional[str] = None, database_url: Optional[str] = None
+    ):
+        """
+        Initialize database manager.
+
+        Args:
+            service_name: Service name for configuration
+            database_url: Override database URL
+        """
+        self.service_name = service_name
+        self.database_url = database_url or DatabaseConfig.get_database_url(
+            service_name
+        )
+
+        # Create engine
+        self.engine = create_engine(
+            self.database_url,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            echo=os.getenv("SQL_DEBUG", "false").lower() == "true",
+        )
+
+        # Create session factory
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
+
+        logger.info(f"Database manager initialized for {service_name or 'default'}")
+
+    @contextmanager
+    def get_db(self) -> Generator[Session, None, None]:
+        """
+        Database session context manager.
+
+        Works for both:
+        1. FastAPI dependency injection: db: Session = Depends(get_db)
+        2. Manual context manager: with get_db() as db:
+
+        Ensures proper cleanup and error handling.
+        """
+        session = self.SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(
+                f"Database session error in {self.service_name or 'default'}: {e}"
+            )
+            raise
+        finally:
+            session.close()
+
+
+# Global database manager instances for common services
+_managers = {}
+
+
+def get_database_manager(service_name: Optional[str] = None) -> DatabaseManager:
+    """
+    Get or create a database manager for a service.
+
+    Args:
+        service_name: Service name (e.g., 'safety_network', 'voice', etc.)
+
+    Returns:
+        DatabaseManager instance
+    """
+    key = service_name or "default"
+
+    if key not in _managers:
+        _managers[key] = DatabaseManager(service_name)
+
+    return _managers[key]
+
+
+def get_db(service_name: Optional[str] = None) -> Generator[Session, None, None]:
+    """
+    Universal get_db function that all services can use.
+
+    Args:
+        service_name: Optional service name for service-specific configuration
+
+    Yields:
+        Database session
+
+    Example:
+        # In any service:
+        from utils.database import get_db
+
+        # Use default database
+        with get_db() as db:
+            ...
+
+        # Use service-specific database
+        with get_db('safety_network') as db:
+            ...
+    """
+    manager = get_database_manager(service_name)
+    with manager.get_db() as session:
+        yield session
 
 
 async def execute_query(

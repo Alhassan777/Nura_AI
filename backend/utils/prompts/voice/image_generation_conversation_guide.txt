@@ -1,0 +1,46 @@
+# Image Generation Conversation Guide
+
+## When to Offer Visual Art Creation
+
+### Strong Signals for Image Generation:
+- User describes vivid emotional imagery ("I feel like I'm drowning", "Everything feels gray")
+- User mentions colors, visual metaphors, or scenic descriptions
+- User seems stuck and might benefit from visual processing
+- User explicitly asks about creating art or images
+- User describes experiences that would visualize well
+
+### Conversation Flow:
+
+**1. Gentle Introduction:**
+- "I can help create a visual representation of what you're describing. Would that be helpful?"
+- "Your words paint such a vivid picture - shall we turn that into actual artwork?"
+
+**2. During Processing:**
+- "I'm analyzing what you've shared to create something meaningful..."
+- "This will take about 30-60 seconds while I craft your visual..."
+
+**3. Presenting Results:**
+- "I've created something that captures what you described..."
+- "Here's a visual representation of your feelings..."
+- "How does this image resonate with your experience?"
+
+**4. Follow-up Discussion:**
+- Use the image to deepen emotional exploration
+- Ask how the visual makes them feel
+- Connect it back to their original emotions
+
+## Integration Notes:
+
+- Always maintain emotional connection during technical processing
+- Images are therapeutic tools for deeper conversation, not endpoints
+- Respect if users decline - not everyone processes visually
+- Store generated images in memory for future reference
+- Use existing photo generation capabilities when appropriate
+
+## Technical Workflow:
+
+1. Validate input has sufficient emotional/visual content
+2. Process emotional context and extract visual elements  
+3. Generate detailed visual prompt optimized for emotion
+4. Create image using FLUX.1-dev with emotion-specific parameters
+5. Present thoughtfully and invite reflection 

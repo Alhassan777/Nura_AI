@@ -1,0 +1,81 @@
+# Visual Element Mappings for Image Generation
+
+## Color-Emotion Associations
+
+### Calm
+- soft blue, pale blue, gentle blue, lavender
+
+### Energetic  
+- orange, yellow, bright red, vibrant colors
+
+### Sad/Melancholic
+- gray, muted blue, dark blue, pale tones
+
+### Angry
+- red, deep red, crimson, fierce orange
+
+### Hopeful
+- golden, warm yellow, soft pink, light green
+
+### Anxious
+- storm gray, turbulent colors, swirling patterns
+
+### Peaceful
+- soft green, lavender, cream, gentle pastels
+
+### Mysterious
+- purple, deep purple, dark blue, silver
+
+## Landscape-Emotion Associations
+
+### Lost/Confused
+- fog, maze, crossroads, winding path
+
+### Overwhelmed
+- storm, waves, flood, mountain peaks
+
+### Stuck/Trapped
+- walls, cage, deep valley, thick forest
+
+### Free/Liberated
+- open sky, mountain top, vast field, ocean horizon
+
+### Growing/Developing
+- garden, sunrise, spring scenery, flowing river
+
+### Transforming/Changing
+- butterfly, phoenix, seasons changing, dawn breaking
+
+## Scene Templates by Emotion
+
+### Calm
+"A peaceful {landscape} with soft {colors} and gentle {lighting}, where {elements} create a sense of tranquility"
+
+### Anxious
+"A {landscape} where {weather} swirls with {colors}, and {elements} suggest uncertainty and movement"
+
+### Hopeful
+"A {landscape} bathed in warm {lighting} where {elements} reach toward {sky_element}, painted in {colors}"
+
+### Melancholic
+"A quiet {landscape} in {lighting} with {colors} that speak of {emotional_element}"
+
+### Energetic
+"A dynamic {landscape} with vibrant {colors} where {elements} dance with {movement}"
+
+## Style Modifiers
+
+### Realistic
+"photorealistic, detailed textures, natural lighting"
+
+### Abstract
+"abstract forms, flowing shapes, symbolic representation"
+
+### Impressionistic
+"soft brushstrokes, dreamy atmosphere, painterly quality"
+
+### Minimalist
+"clean lines, simple forms, negative space, elegant simplicity"
+
+### Dramatic
+"high contrast, dramatic lighting, intense atmosphere" 

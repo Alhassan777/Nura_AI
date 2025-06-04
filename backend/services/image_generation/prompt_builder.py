@@ -6,6 +6,7 @@ from various memory sources and builds comprehensive prompts.
 import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import os
 
 from ..memory.memoryService import MemoryService
 
@@ -86,7 +87,7 @@ class PromptBuilder:
             return "No recent conversation context available."
 
         context_parts = []
-        for memory in short_term_memories[-5:]:  # Last 5 messages for context
+        for memory in short_term_memories[-50:]:  # Last 5 messages for context
             content = memory.content.strip()
             memory_type = memory.type
 
@@ -292,7 +293,17 @@ class PromptBuilder:
     def format_prompt_template(self, context: Dict[str, Any]) -> str:
         """Format the context into the prompt template."""
 
-        with open("services/memory/prompts/photo_generation.txt", "r") as f:
+        # Updated to use the centralized chat prompts directory
+        prompt_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "utils",
+            "prompts",
+            "chat",
+            "photo_generation.txt",
+        )
+        with open(prompt_path, "r") as f:
             template = f.read()
 
         return template.format(

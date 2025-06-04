@@ -154,6 +154,80 @@ class VapiClient:
             logger.error(f"Unexpected error getting assistant {assistant_id}: {e}")
             raise
 
+    async def transfer_call(
+        self, call_id: str, transfer_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Transfer an active call to another phone number.
+
+        Args:
+            call_id: Vapi call ID
+            transfer_data: Transfer configuration with destination details
+
+        Returns:
+            Transfer response from Vapi
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/call/{call_id}/transfer",
+                    headers=self.headers,
+                    json=transfer_data,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+
+                transfer_result = response.json()
+                logger.info(f"Call transfer initiated for call {call_id}")
+
+                return {
+                    "success": True,
+                    "transfer_id": transfer_result.get("transferId"),
+                    "destination": transfer_data.get("destination", {}).get("number"),
+                    "message": "Call transfer initiated successfully",
+                }
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to transfer call {call_id}: {e}")
+            return {
+                "success": False,
+                "error": f"HTTP {e.response.status_code}: {e.response.text if hasattr(e, 'response') else str(e)}",
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error transferring call {call_id}: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def end_call(self, call_id: str) -> Dict[str, Any]:
+        """
+        End an active call.
+
+        Args:
+            call_id: Vapi call ID
+
+        Returns:
+            End call response
+        """
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    f"{self.base_url}/call/{call_id}",
+                    headers=self.headers,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+
+                return {
+                    "success": True,
+                    "message": f"Call {call_id} ended successfully",
+                }
+
+        except httpx.HTTPError as e:
+            logger.error(f"Failed to end call {call_id}: {e}")
+            return {"success": False, "error": f"HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Unexpected error ending call {call_id}: {e}")
+            return {"success": False, "error": str(e)}
+
 
 # Global client instance
 vapi_client = VapiClient()

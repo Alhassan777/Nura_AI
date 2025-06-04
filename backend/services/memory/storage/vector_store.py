@@ -1,9 +1,20 @@
+"""
+Vector Storage Layer for Long-term Memory Management.
+
+Handles persistent storage of processed memory items using vector databases
+for semantic search and long-term retention.
+"""
+
 import os
+import json
 import logging
-from typing import List, Optional, Dict, Any
+import sys
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import chromadb
 from chromadb.config import Settings
+import uuid
+from dataclasses import asdict
 import google.generativeai as genai
 
 # Import Pinecone
@@ -20,11 +31,20 @@ except ImportError:
 from ..types import MemoryItem
 from ..config import Config
 
+# Import authentication systems - SIMPLIFIED for session-based auth
+from ..types import MemoryItem
+from ..config import Config
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
 
 class VectorStore:
+    """
+    SIMPLIFIED Vector Store for secure long-term memory storage.
+    All operations are secure by default since user_id comes from validated JWT.
+    """
+
     def __init__(
         self,
         persist_directory: str = None,
@@ -34,609 +54,489 @@ class VectorStore:
         # Determine which vector database to use
         self.vector_db_type = vector_db_type.lower()
         self.use_pinecone = use_pinecone or (self.vector_db_type == "pinecone")
-        self.persist_directory = persist_directory
+        self.persist_directory = persist_directory or "chroma"
 
-        # Initialize embedding model (always needed)
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        # Initialize storage system
+        self.client = None
+        self.collection = None
+        self.pinecone_client = None
+        self.pinecone_index = None
 
+        logger.info(f"Initialized VectorStore with {self.vector_db_type} backend")
+
+    def _get_user_namespace(self, user_id: str) -> str:
+        """Get user-specific namespace for vector isolation."""
+        return f"user_{user_id}"
+
+    def _get_user_metadata_filter(self, user_id: str) -> Dict[str, Any]:
+        """Get metadata filter to ensure user data isolation."""
+        return {"user_id": user_id}
+
+    async def initialize(self):
+        """Initialize the vector database connection."""
         try:
-            if self.use_pinecone:
-                self._initialize_pinecone()
+            if self.use_pinecone and PINECONE_AVAILABLE:
+                await self._initialize_pinecone()
             else:
-                self._initialize_chroma(persist_directory)
+                await self._initialize_chroma()
+
+            logger.info(
+                f"Vector store initialized successfully with {self.vector_db_type}"
+            )
+
         except Exception as e:
-            logger.error(f"Failed to initialize VectorStore: {str(e)}")
+            logger.error(f"Failed to initialize vector store: {e}")
             raise
 
-    def _initialize_pinecone(self):
-        """Initialize Pinecone vector database."""
-        if not PINECONE_AVAILABLE:
-            raise ImportError(
-                "Pinecone not available. Install with: pip install pinecone-client"
-            )
+    async def _initialize_pinecone(self):
+        """Initialize Pinecone client and index."""
+        try:
+            api_key = Config.PINECONE_API_KEY
+            if not api_key:
+                raise ValueError("PINECONE_API_KEY not configured")
 
-        api_key = Config.PINECONE_API_KEY
-        index_name = Config.PINECONE_INDEX_NAME
+            from pinecone import Pinecone, ServerlessSpec
 
-        if not api_key:
-            raise ValueError("PINECONE_API_KEY must be set")
+            self.pinecone_client = Pinecone(api_key=api_key)
 
-        # Initialize Pinecone client
-        self.pinecone_client = Pinecone(api_key=api_key)
-
-        # Configure embedding dimensions for NVIDIA model
-        # NVIDIA llama-text-embed-v2 supports: 1024, 2048, 768, 512, 384
-        self.embedding_dimension = 768  # Default compatible with both models
-
-        # Check if index exists, create if not
-        existing_indexes = [index.name for index in self.pinecone_client.list_indexes()]
-
-        if index_name not in existing_indexes:
-            logger.info(
-                f"Creating Pinecone index: {index_name} with {self.embedding_dimension} dimensions"
-            )
+            # Create or get index
+            index_name = Config.PINECONE_INDEX_NAME or "nura-memories"
 
             try:
+                # Try to get existing index
+                self.pinecone_index = self.pinecone_client.Index(index_name)
+                logger.info(f"Connected to existing Pinecone index: {index_name}")
+
+            except Exception:
+                # Create new index if it doesn't exist
+                logger.info(f"Creating new Pinecone index: {index_name}")
                 self.pinecone_client.create_index(
                     name=index_name,
-                    dimension=self.embedding_dimension,  # Use configurable dimension
+                    dimension=768,  # For text embedding models
                     metric="cosine",
-                    spec=ServerlessSpec(
-                        cloud="aws",
-                        region="us-east-1",
-                    ),
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
                 )
-                logger.info(f"Created Pinecone index: {index_name}")
-            except Exception as e:
-                # If default fails, try GCP
-                try:
-                    self.pinecone_client.create_index(
-                        name=index_name,
-                        dimension=self.embedding_dimension,
-                        metric="cosine",
-                        spec=ServerlessSpec(cloud="gcp", region="us-central1"),
-                    )
-                    logger.info(f"Created Pinecone index: {index_name} on GCP")
-                except Exception as e2:
-                    raise Exception(
-                        f"Could not create Pinecone index {index_name}. Please create it manually in the Pinecone console at https://app.pinecone.io/. Error: {str(e2)}"
-                    )
-
-        # Connect to the index
-        self.pinecone_index = self.pinecone_client.Index(index_name)
-        logger.info(f"Initialized VectorStore with Pinecone index: {index_name}")
-
-    def _initialize_chroma(self, persist_directory: str):
-        """Initialize ChromaDB vector database."""
-        # For Chroma, we can use any dimension since it doesn't need to be pre-configured
-        self.embedding_dimension = 768  # Gemini embedding size
-
-        # Initialize Chroma
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
-            settings=Settings(anonymized_telemetry=False),
-        )
-        self.collection = self.client.get_or_create_collection(
-            name="memories", metadata={"hnsw:space": "cosine"}
-        )
-        logger.info(f"Initialized VectorStore with ChromaDB at {persist_directory}")
-
-    def _convert_timestamp_to_datetime(self, timestamp_str) -> datetime:
-        """Convert timestamp string back to datetime object."""
-        if not timestamp_str:
-            return None
-
-        try:
-            # Handle both ISO format with and without timezone
-            if isinstance(timestamp_str, str):
-                return datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-            else:
-                return timestamp_str
-        except ValueError:
-            logger.warning(
-                f"Could not parse timestamp {timestamp_str}, using current time"
-            )
-            return datetime.utcnow()
-
-    async def add_memory(self, user_id: str, memory: MemoryItem) -> None:
-        """Add a memory to the vector store."""
-        try:
-            # Generate embedding
-            embedding = await self._get_embedding(memory.content)
-            memory.embedding = embedding
-
-            if self.use_pinecone:
-                await self._add_memory_pinecone(user_id, memory, embedding)
-            else:
-                await self._add_memory_chroma(user_id, memory, embedding)
+                self.pinecone_index = self.pinecone_client.Index(index_name)
 
         except Exception as e:
-            logger.error(
-                f"Failed to add memory {memory.id} for user {user_id}: {str(e)}"
-            )
+            logger.error(f"Failed to initialize Pinecone: {e}")
             raise
 
-    async def update_memory(self, user_id: str, memory: MemoryItem) -> bool:
-        """Update an existing memory or add it if it doesn't exist."""
+    async def _initialize_chroma(self):
+        """Initialize ChromaDB client and collection."""
         try:
-            # Generate embedding
-            embedding = await self._get_embedding(memory.content)
-            memory.embedding = embedding
+            # Initialize ChromaDB
+            self.client = chromadb.PersistentClient(path=self.persist_directory)
 
-            if self.use_pinecone:
-                # Pinecone upsert automatically handles updates
-                await self._add_memory_pinecone(user_id, memory, embedding)
-            else:
-                # For ChromaDB, we need to delete and re-add
-                await self._delete_memory_chroma(user_id, memory.id)
-                await self._add_memory_chroma(user_id, memory, embedding)
-
-            logger.info(f"Updated memory {memory.id} for user {user_id}")
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"Failed to update memory {memory.id} for user {user_id}: {str(e)}"
-            )
-            return False
-
-    async def _add_memory_pinecone(
-        self, user_id: str, memory: MemoryItem, embedding: List[float]
-    ) -> None:
-        """Add memory to Pinecone."""
-        metadata = {
-            "user_id": user_id,
-            "content": memory.content,
-            "type": memory.type,
-            "timestamp": memory.timestamp.isoformat(),
-            **{
-                k: str(v) for k, v in memory.metadata.items()
-            },  # Pinecone requires string values
-        }
-
-        # Upsert to Pinecone
-        self.pinecone_index.upsert(vectors=[(memory.id, embedding, metadata)])
-        logger.info(f"Added memory {memory.id} for user {user_id} to Pinecone")
-
-    async def _add_memory_chroma(
-        self, user_id: str, memory: MemoryItem, embedding: List[float]
-    ) -> None:
-        """Add memory to ChromaDB."""
-        # Add to Chroma
-        self.collection.add(
-            ids=[memory.id],
-            embeddings=[embedding],
-            metadatas=[
-                {
-                    "user_id": user_id,
-                    "content": memory.content,
-                    "type": memory.type,
-                    "timestamp": memory.timestamp.isoformat(),
-                    **memory.metadata,
-                }
-            ],
-        )
-        logger.info(f"Added memory {memory.id} for user {user_id} to ChromaDB")
-
-    async def get_similar_memories(
-        self, user_id: str, query: str, limit: int = 5
-    ) -> List[MemoryItem]:
-        """Get similar memories for a query."""
-        try:
-            # Generate query embedding
-            query_embedding = await self._get_embedding(query)
-
-            if self.use_pinecone:
-                return await self._get_similar_memories_pinecone(
-                    user_id, query_embedding, limit
+            # Get or create collection
+            collection_name = "nura_memories"
+            try:
+                self.collection = self.client.get_collection(name=collection_name)
+                logger.info(
+                    f"Connected to existing ChromaDB collection: {collection_name}"
                 )
-            else:
-                return await self._get_similar_memories_chroma(
-                    user_id, query_embedding, limit
+            except Exception:
+                self.collection = self.client.create_collection(
+                    name=collection_name,
+                    metadata={"description": "Nura user memories with user isolation"},
                 )
+                logger.info(f"Created new ChromaDB collection: {collection_name}")
 
         except Exception as e:
-            logger.error(f"Failed to get similar memories for user {user_id}: {str(e)}")
-            return []
-
-    async def similarity_search(
-        self, query: str, user_id: str = None, k: int = 5
-    ) -> List[Dict[str, Any]]:
-        """
-        Search for similar memories and return results in dictionary format.
-        This method is used by prompt_builder for context gathering.
-        """
-        try:
-            # Use the existing get_similar_memories method
-            memories = await self.get_similar_memories(user_id, query, limit=k)
-
-            # Convert to dictionary format with score
-            results = []
-            for memory in memories:
-                result = {
-                    "content": memory.content,
-                    "score": 0.8,  # Default score since we don't get exact scores from existing method
-                    "metadata": {
-                        "id": memory.id,
-                        "type": memory.type,
-                        "timestamp": (
-                            memory.timestamp.isoformat() if memory.timestamp else None
-                        ),
-                        **memory.metadata,
-                    },
-                }
-                results.append(result)
-
-            logger.debug(
-                f"Similarity search returned {len(results)} results for query: {query[:50]}..."
-            )
-            return results
-
-        except Exception as e:
-            logger.error(f"Failed similarity search for query '{query}': {str(e)}")
-            return []
-
-    async def _get_similar_memories_pinecone(
-        self, user_id: str, query_embedding: List[float], limit: int
-    ) -> List[MemoryItem]:
-        """Get similar memories from Pinecone."""
-        # Query Pinecone with user filter
-        results = self.pinecone_index.query(
-            vector=query_embedding,
-            top_k=limit,
-            filter={"user_id": {"$eq": user_id}},
-            include_metadata=True,
-        )
-
-        # Convert results to MemoryItems
-        memories = []
-        for match in results.matches:
-            metadata = match.metadata
-
-            # Convert timestamp back to datetime object
-            timestamp_str = metadata.get("timestamp")
-            timestamp = None
-            if timestamp_str:
-                try:
-                    # Handle both ISO format with and without timezone
-                    if isinstance(timestamp_str, str):
-                        timestamp = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                    else:
-                        timestamp = timestamp_str
-                except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp {timestamp_str}, using current time"
-                    )
-                    timestamp = datetime.utcnow()
-
-            memory = MemoryItem(
-                id=match.id,
-                userId=user_id,
-                content=metadata["content"],
-                type=metadata["type"],
-                timestamp=timestamp,
-                metadata={
-                    k: v
-                    for k, v in metadata.items()
-                    if k not in ["user_id", "content", "type", "timestamp"]
-                },
-                embedding=None,  # Don't store embedding in memory object
-            )
-            memories.append(memory)
-
-        logger.info(
-            f"Retrieved {len(memories)} similar memories for user {user_id} from Pinecone"
-        )
-        return memories
-
-    async def _get_similar_memories_chroma(
-        self, user_id: str, query_embedding: List[float], limit: int
-    ) -> List[MemoryItem]:
-        """Get similar memories from ChromaDB."""
-        # Query Chroma
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where={"user_id": user_id},
-        )
-
-        # Convert results to MemoryItems
-        memories = []
-        for i in range(len(results["ids"][0])):
-            metadata = results["metadatas"][0][i]
-
-            # Convert timestamp back to datetime object
-            timestamp_str = metadata.get("timestamp")
-            timestamp = None
-            if timestamp_str:
-                try:
-                    # Handle both ISO format with and without timezone
-                    if isinstance(timestamp_str, str):
-                        timestamp = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                    else:
-                        timestamp = timestamp_str
-                except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp {timestamp_str}, using current time"
-                    )
-                    timestamp = datetime.utcnow()
-
-            memory = MemoryItem(
-                id=results["ids"][0][i],
-                userId=user_id,
-                content=metadata["content"],
-                type=metadata["type"],
-                timestamp=timestamp,
-                metadata=metadata,
-                embedding=(
-                    results["embeddings"][0][i] if results["embeddings"] else None
-                ),
-            )
-            memories.append(memory)
-
-        logger.info(
-            f"Retrieved {len(memories)} similar memories for user {user_id} from ChromaDB"
-        )
-        return memories
-
-    async def delete_memory(self, user_id: str, memory_id: str) -> bool:
-        """Delete a memory from the vector store."""
-        try:
-            if self.use_pinecone:
-                return await self._delete_memory_pinecone(user_id, memory_id)
-            else:
-                return await self._delete_memory_chroma(user_id, memory_id)
-
-        except Exception as e:
-            logger.error(
-                f"Failed to delete memory {memory_id} for user {user_id}: {str(e)}"
-            )
-            return False
-
-    async def _delete_memory_pinecone(self, user_id: str, memory_id: str) -> bool:
-        """Delete memory from Pinecone."""
-        self.pinecone_index.delete(ids=[memory_id])
-        logger.info(f"Deleted memory {memory_id} for user {user_id} from Pinecone")
-        return True
-
-    async def _delete_memory_chroma(self, user_id: str, memory_id: str) -> bool:
-        """Delete memory from ChromaDB."""
-        self.collection.delete(ids=[memory_id], where={"user_id": user_id})
-        logger.info(f"Deleted memory {memory_id} for user {user_id} from ChromaDB")
-        return True
-
-    async def clear_memories(self, user_id: str) -> None:
-        """Clear all memories for a user."""
-        try:
-            if self.use_pinecone:
-                await self._clear_memories_pinecone(user_id)
-            else:
-                await self._clear_memories_chroma(user_id)
-
-        except Exception as e:
-            logger.error(f"Failed to clear memories for user {user_id}: {str(e)}")
+            logger.error(f"Failed to initialize ChromaDB: {e}")
             raise
 
-    async def _clear_memories_pinecone(self, user_id: str) -> None:
-        """Clear all memories for a user from Pinecone."""
-        # Query all memories for user first
-        results = self.pinecone_index.query(
-            vector=[0.0] * 768,  # Dummy vector
-            top_k=10000,  # Large number to get all
-            filter={"user_id": {"$eq": user_id}},
-            include_metadata=False,
-        )
-
-        if results.matches:
-            # Delete all found memories
-            memory_ids = [match.id for match in results.matches]
-            self.pinecone_index.delete(ids=memory_ids)
-            logger.info(
-                f"Cleared {len(memory_ids)} memories for user {user_id} from Pinecone"
-            )
-        else:
-            logger.info(f"No memories found to clear for user {user_id} in Pinecone")
-
-    async def _clear_memories_chroma(self, user_id: str) -> None:
-        """Clear all memories for a user from ChromaDB."""
-        # Get count before deletion
-        existing = self.collection.get(where={"user_id": user_id})
-        count = len(existing["ids"]) if existing["ids"] else 0
-
-        # Delete from Chroma
-        self.collection.delete(where={"user_id": user_id})
-        logger.info(f"Cleared {count} memories for user {user_id} from ChromaDB")
-
-    async def get_memory_count(self, user_id: str) -> int:
-        """Get the number of memories for a user."""
+    async def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for texts using Google AI."""
         try:
-            if self.use_pinecone:
-                return await self._get_memory_count_pinecone(user_id)
-            else:
-                return await self._get_memory_count_chroma(user_id)
+            if not Config.GOOGLE_API_KEY:
+                raise ValueError("GOOGLE_API_KEY not configured for embeddings")
 
-        except Exception as e:
-            logger.error(f"Failed to get memory count for user {user_id}: {str(e)}")
-            return 0
+            genai.configure(api_key=Config.GOOGLE_API_KEY)
 
-    async def _get_memory_count_pinecone(self, user_id: str) -> int:
-        """Get memory count from Pinecone."""
-        # Query with dummy vector to get count
-        results = self.pinecone_index.query(
-            vector=[0.0] * 768,
-            top_k=10000,  # Large number to get all
-            filter={"user_id": {"$eq": user_id}},
-            include_metadata=False,
-        )
-        count = len(results.matches)
-        logger.debug(f"User {user_id} has {count} memories in Pinecone")
-        return count
-
-    async def _get_memory_count_chroma(self, user_id: str) -> int:
-        """Get memory count from ChromaDB."""
-        # Get count from Chroma
-        existing = self.collection.get(where={"user_id": user_id})
-        count = len(existing["ids"]) if existing["ids"] else 0
-        logger.debug(f"User {user_id} has {count} memories in ChromaDB")
-        return count
-
-    async def get_memories(self, user_id: str, limit: int = 1000) -> List[MemoryItem]:
-        """Get all memories for a user."""
-        try:
-            if self.use_pinecone:
-                return await self._get_memories_pinecone(user_id, limit)
-            else:
-                return await self._get_memories_chroma(user_id, limit)
-
-        except Exception as e:
-            logger.error(f"Failed to get memories for user {user_id}: {str(e)}")
-            return []
-
-    async def _get_memories_pinecone(
-        self, user_id: str, limit: int
-    ) -> List[MemoryItem]:
-        """Get all memories from Pinecone."""
-        # Query with dummy vector to get all memories
-        results = self.pinecone_index.query(
-            vector=[0.0] * 768,  # Dummy vector
-            top_k=limit,
-            filter={"user_id": {"$eq": user_id}},
-            include_metadata=True,
-        )
-
-        # Convert results to MemoryItems
-        memories = []
-        for match in results.matches:
-            metadata = match.metadata
-
-            # Convert timestamp back to datetime object
-            timestamp_str = metadata.get("timestamp")
-            timestamp = None
-            if timestamp_str:
-                try:
-                    # Handle both ISO format with and without timezone
-                    if isinstance(timestamp_str, str):
-                        timestamp = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                    else:
-                        timestamp = timestamp_str
-                except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp {timestamp_str}, using current time"
-                    )
-                    timestamp = datetime.utcnow()
-
-            memory = MemoryItem(
-                id=match.id,
-                userId=user_id,
-                content=metadata["content"],
-                type=metadata["type"],
-                timestamp=timestamp,
-                metadata={
-                    k: v
-                    for k, v in metadata.items()
-                    if k not in ["user_id", "content", "type", "timestamp"]
-                },
-                embedding=None,  # Don't store embedding in memory object
-            )
-            memories.append(memory)
-
-        logger.info(
-            f"Retrieved {len(memories)} memories for user {user_id} from Pinecone"
-        )
-        return memories
-
-    async def _get_memories_chroma(self, user_id: str, limit: int) -> List[MemoryItem]:
-        """Get all memories from ChromaDB."""
-        # Get all memories from Chroma
-        results = self.collection.get(
-            where={"user_id": user_id},
-            limit=limit,
-        )
-
-        # Convert results to MemoryItems
-        memories = []
-        for i in range(len(results["ids"])):
-            metadata = results["metadatas"][i]
-
-            # Convert timestamp back to datetime object
-            timestamp_str = metadata.get("timestamp")
-            timestamp = None
-            if timestamp_str:
-                try:
-                    # Handle both ISO format with and without timezone
-                    if isinstance(timestamp_str, str):
-                        timestamp = datetime.fromisoformat(
-                            timestamp_str.replace("Z", "+00:00")
-                        )
-                    else:
-                        timestamp = timestamp_str
-                except ValueError:
-                    logger.warning(
-                        f"Could not parse timestamp {timestamp_str}, using current time"
-                    )
-                    timestamp = datetime.utcnow()
-
-            memory = MemoryItem(
-                id=results["ids"][i],
-                userId=user_id,
-                content=metadata["content"],
-                type=metadata["type"],
-                timestamp=timestamp,
-                metadata=metadata,
-                embedding=None,  # Don't include embeddings by default
-            )
-            memories.append(memory)
-
-        logger.info(
-            f"Retrieved {len(memories)} memories for user {user_id} from ChromaDB"
-        )
-        return memories
-
-    async def _get_embedding(self, text: str) -> List[float]:
-        """Get embedding for text using the appropriate model for the vector store."""
-        try:
-            if self.use_pinecone:
-                # Use Pinecone's native NVIDIA llama-text-embed-v2 for consistency
-                from pinecone import Pinecone
-
-                pc = Pinecone(api_key=Config.PINECONE_API_KEY)
-
-                response = pc.inference.embed(
-                    model="llama-text-embed-v2",
-                    inputs=[text],
-                    parameters={
-                        "input_type": "passage",
-                        "dimension": self.embedding_dimension,  # Fixed: 'dimension' not 'dimensions'
-                    },
-                )
-
-                # Fix: Access the embedding data correctly
-                # The response structure is: response.data[0].values
-                embedding = response.data[0].values
-                logger.debug(
-                    f"Generated NVIDIA embedding (dim={len(embedding)}) for text of length {len(text)}"
-                )
-                return embedding
-
-            else:
-                # Use Gemini for ChromaDB (works for local vector databases)
-                response = genai.embed_content(
+            embeddings = []
+            for text in texts:
+                result = genai.embed_content(
                     model="models/embedding-001",
                     content=text,
                     task_type="retrieval_document",
                 )
-                embedding = response["embedding"]
-                logger.debug(
-                    f"Generated Gemini embedding (dim={len(embedding)}) for text of length {len(text)}"
-                )
-                return embedding
+                embeddings.append(result["embedding"])
+
+            return embeddings
 
         except Exception as e:
-            logger.error(f"Failed to generate embedding for text: {str(e)}")
+            logger.error(f"Failed to generate embeddings: {e}")
             raise
+
+    async def store_memory(self, user_id: str, memory: MemoryItem) -> bool:
+        """
+        Store a memory with user isolation.
+
+        Args:
+            user_id: Validated user ID from JWT
+            memory: Memory to store
+
+        Returns:
+            Success status
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                await self.initialize()
+
+            # Generate embedding
+            embeddings = await self._get_embeddings([memory.content])
+            embedding = embeddings[0]
+
+            # Create metadata with user ownership
+            metadata = {
+                **memory.metadata,
+                "user_id": user_id,
+                "memory_id": memory.id,
+                "type": memory.type,
+                "timestamp": memory.timestamp.isoformat(),
+                "content_preview": memory.content[:100],
+            }
+
+            if self.use_pinecone and self.pinecone_index:
+                # Store in Pinecone with user namespace
+                vector_data = {
+                    "id": f"{user_id}_{memory.id}",
+                    "values": embedding,
+                    "metadata": metadata,
+                }
+
+                namespace = self._get_user_namespace(user_id)
+                self.pinecone_index.upsert(vectors=[vector_data], namespace=namespace)
+
+            else:
+                # Store in ChromaDB with user metadata filter
+                self.collection.add(
+                    ids=[f"{user_id}_{memory.id}"],
+                    embeddings=[embedding],
+                    documents=[memory.content],
+                    metadatas=[metadata],
+                )
+
+            logger.debug(f"Stored memory {memory.id} for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to store memory for user {user_id}: {e}")
+            return False
+
+    async def similarity_search(
+        self, query: str, user_id: str, k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Search user's memories by similarity.
+
+        Args:
+            query: Search query
+            user_id: Validated user ID from JWT
+            k: Number of results
+
+        Returns:
+            List of similar memories with scores
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                await self.initialize()
+
+            # Generate query embedding
+            query_embeddings = await self._get_embeddings([query])
+            query_embedding = query_embeddings[0]
+
+            results = []
+
+            if self.use_pinecone and self.pinecone_index:
+                # Search in user's Pinecone namespace
+                namespace = self._get_user_namespace(user_id)
+
+                search_results = self.pinecone_index.query(
+                    vector=query_embedding,
+                    top_k=k,
+                    namespace=namespace,
+                    include_metadata=True,
+                )
+
+                for match in search_results.matches:
+                    results.append(
+                        {
+                            "content": match.metadata.get("content_preview", ""),
+                            "score": float(match.score),
+                            "metadata": match.metadata,
+                            "memory_id": match.metadata.get("memory_id"),
+                        }
+                    )
+
+            else:
+                # Search in ChromaDB with user filter
+                search_results = self.collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=k,
+                    where=self._get_user_metadata_filter(user_id),
+                )
+
+                if search_results["documents"]:
+                    for i, doc in enumerate(search_results["documents"][0]):
+                        metadata = search_results["metadatas"][0][i]
+                        distance = search_results["distances"][0][i]
+
+                        # Convert distance to similarity score (higher = more similar)
+                        score = 1.0 - distance
+
+                        results.append(
+                            {
+                                "content": doc,
+                                "score": score,
+                                "metadata": metadata,
+                                "memory_id": metadata.get("memory_id"),
+                            }
+                        )
+
+            # Sort by score (highest first)
+            results.sort(key=lambda x: x["score"], reverse=True)
+
+            logger.debug(f"Found {len(results)} similar memories for user {user_id}")
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to search memories for user {user_id}: {e}")
+            return []
+
+    async def get_user_memories(
+        self, user_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        Get memories for a specific user with proper isolation.
+
+        Args:
+            user_id: Validated user ID from JWT
+            limit: Maximum number of memories to retrieve
+
+        Returns:
+            List of memory dictionaries
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                await self.initialize()
+
+            if self.use_pinecone:
+                return await self._get_pinecone_memories(user_id, limit)
+            else:
+                return await self._get_chroma_memories(user_id, limit)
+
+        except Exception as e:
+            logger.error(f"Failed to get memories for user {user_id}: {e}")
+            return []
+
+    async def _get_pinecone_memories(
+        self, user_id: str, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Get memories from Pinecone for a specific user."""
+        memories = []
+        namespace = self._get_user_namespace(user_id)
+
+        try:
+            # Get stats first to see if namespace exists
+            stats = self.pinecone_index.describe_index_stats()
+
+            if namespace in stats.namespaces:
+                # Use a broad query to get user's memories
+                # This is not ideal but Pinecone doesn't have direct "list all" functionality
+                dummy_embedding = [0.1] * 768  # Small non-zero values
+
+                results = self.pinecone_index.query(
+                    vector=dummy_embedding,
+                    top_k=min(limit, 1000),  # Cap at reasonable limit
+                    namespace=namespace,
+                    include_metadata=True,
+                    include_values=False,
+                )
+
+                for match in results.matches:
+                    memories.append(
+                        {
+                            "memory_id": match.metadata.get("memory_id"),
+                            "content": match.metadata.get("content_preview", ""),
+                            "metadata": match.metadata,
+                            "timestamp": match.metadata.get("timestamp"),
+                        }
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Could not retrieve memories from Pinecone namespace {namespace}: {e}"
+            )
+
+        return memories
+
+    async def _get_chroma_memories(
+        self, user_id: str, limit: int
+    ) -> List[Dict[str, Any]]:
+        """Get memories from ChromaDB for a specific user."""
+        memories = []
+
+        try:
+            results = self.collection.get(
+                where=self._get_user_metadata_filter(user_id), limit=limit
+            )
+
+            if results["documents"]:
+                for i, doc in enumerate(results["documents"]):
+                    metadata = results["metadatas"][i]
+                    memories.append(
+                        {
+                            "memory_id": metadata.get("memory_id"),
+                            "content": doc,
+                            "metadata": metadata,
+                            "timestamp": metadata.get("timestamp"),
+                        }
+                    )
+        except Exception as e:
+            logger.warning(
+                f"Could not retrieve memories from ChromaDB for user {user_id}: {e}"
+            )
+
+        return memories
+
+    async def delete_memory(self, user_id: str, memory_id: str) -> bool:
+        """
+        Delete a specific memory for a user.
+
+        Args:
+            user_id: Validated user ID from JWT
+            memory_id: Memory ID to delete
+
+        Returns:
+            Success status
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                await self.initialize()
+
+            vector_id = f"{user_id}_{memory_id}"
+
+            if self.use_pinecone and self.pinecone_index:
+                # Delete from user's Pinecone namespace
+                namespace = self._get_user_namespace(user_id)
+                self.pinecone_index.delete(ids=[vector_id], namespace=namespace)
+
+            else:
+                # Delete from ChromaDB
+                self.collection.delete(ids=[vector_id])
+
+            logger.debug(f"Deleted memory {memory_id} for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete memory {memory_id} for user {user_id}: {e}")
+            return False
+
+    async def clear_user_memories(self, user_id: str) -> bool:
+        """
+        Clear all memories for a specific user.
+
+        Args:
+            user_id: Validated user ID from JWT
+
+        Returns:
+            Success status
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                await self.initialize()
+
+            if self.use_pinecone and self.pinecone_index:
+                # Delete entire user namespace
+                namespace = self._get_user_namespace(user_id)
+                self.pinecone_index.delete(delete_all=True, namespace=namespace)
+
+            else:
+                # Delete all user memories from ChromaDB
+                self.collection.delete(where=self._get_user_metadata_filter(user_id))
+
+            logger.info(f"Cleared all memories for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to clear memories for user {user_id}: {e}")
+            return False
+
+    async def get_user_stats(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get vector storage statistics for a user.
+
+        Args:
+            user_id: Validated user ID from JWT
+
+        Returns:
+            User's vector storage statistics
+        """
+        try:
+            memories = await self.get_user_memories(user_id)
+
+            return {
+                "vector_count": len(memories),
+                "storage_type": self.vector_db_type,
+                "index_name": (
+                    Config.PINECONE_INDEX_NAME
+                    if self.use_pinecone
+                    else "chroma_collection"
+                ),
+                "user_namespace": self._get_user_namespace(user_id),
+                "embedding_model": "google-embedding-001",
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get vector stats for user {user_id}: {e}")
+            return {"error": str(e)}
+
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check vector database health.
+
+        Returns:
+            Health status information
+        """
+        try:
+            if not self.client and not self.pinecone_index:
+                return {"status": "not_initialized", "available": False}
+
+            # Test basic operations
+            if self.use_pinecone and self.pinecone_index:
+                # Test Pinecone connection
+                stats = self.pinecone_index.describe_index_stats()
+                return {
+                    "status": "healthy",
+                    "available": True,
+                    "backend": "pinecone",
+                    "total_vectors": stats.total_vector_count,
+                    "namespaces": len(stats.namespaces),
+                }
+
+            else:
+                # Test ChromaDB connection
+                collection_count = len(self.client.list_collections())
+                return {
+                    "status": "healthy",
+                    "available": True,
+                    "backend": "chroma",
+                    "collections": collection_count,
+                }
+
+        except Exception as e:
+            logger.error(f"Vector store health check failed: {e}")
+            return {"status": "unhealthy", "available": False, "error": str(e)}
+
+
+# Create global instance
+vector_store = VectorStore()
+
+
+# Convenience functions
+async def get_vector_store() -> VectorStore:
+    """Get initialized vector store instance."""
+    if not vector_store.client and not vector_store.pinecone_index:
+        await vector_store.initialize()
+    return vector_store

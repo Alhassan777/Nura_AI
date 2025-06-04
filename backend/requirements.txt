@@ -118,6 +118,11 @@ phonenumbers==8.13.55
 # Voice and Scheduling (New for Blueprint Architecture)
 croniter==1.4.1
 
+# Crisis Intervention Communication
+twilio==8.13.0                    # SMS and voice calls (fallback)
+sendgrid==6.11.0                  # Email via SendGrid (fallback)
+boto3==1.35.0                     # AWS SES email fallback
+
 # Observability and Monitoring
 opentelemetry-api==1.27.0
 opentelemetry-exporter-otlp-proto-common==1.27.0
@@ -249,3 +254,6 @@ wrapt==1.17.2
 
 # Logging and Structured Logging
 structlog==24.1.0
+
+#image generation
+pillow==11.1.0
