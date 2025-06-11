@@ -196,8 +196,8 @@ USER MESSAGE: {user_message}
 
         # Schedule analysis
         schedule_opportunity = self.schedule_analyzer.analyze_opportunity(
-                user_message, response_text, context
-            )
+            user_message, response_text, context
+        )
         schedule_task = self.schedule_extractor.extract_information(
             user_message, response_text, context, schedule_opportunity
         )
@@ -228,16 +228,16 @@ USER MESSAGE: {user_message}
     ) -> Dict[str, Any]:
         """Build the final response dictionary."""
         return {
-                "response": response_text,
-                "crisis_level": crisis_assessment["level"],
-                "crisis_explanation": crisis_assessment["explanation"],
-                "timestamp": datetime.utcnow(),
-                "resources_provided": self._extract_resources(response_text),
-                "coping_strategies": self._extract_coping_strategies(response_text),
-                "session_metadata": metadata,
-                "crisis_flag": crisis_assessment["crisis_flag"],
-                "configuration_warning": config_warning is not None,
-                "schedule_analysis": schedule_analysis,
+            "response": response_text,
+            "crisis_level": crisis_assessment["level"],
+            "crisis_explanation": crisis_assessment["explanation"],
+            "timestamp": datetime.utcnow(),
+            "resources_provided": self._extract_resources(response_text),
+            "coping_strategies": self._extract_coping_strategies(response_text),
+            "session_metadata": metadata,
+            "crisis_flag": crisis_assessment["crisis_flag"],
+            "configuration_warning": config_warning is not None,
+            "schedule_analysis": schedule_analysis,
             "action_plan_analysis": action_plan_analysis,
         }
 
@@ -250,20 +250,20 @@ USER MESSAGE: {user_message}
         """Create fallback response when main generation fails."""
         fallback_response = "I'm here to listen and support you. While I'm having technical difficulties right now, please know that your feelings are valid and you don't have to go through this alone."
 
-            if config_warning:
-                fallback_response = f"{config_warning}\n\n{fallback_response}"
+        if config_warning:
+            fallback_response = f"{config_warning}\n\n{fallback_response}"
 
         return {
-                "response": fallback_response,
-                "crisis_level": crisis_assessment["level"],
-                "crisis_explanation": "Technical error occurred",
-                "timestamp": datetime.utcnow(),
-                "resources_provided": ["crisis_hotline"],
-                "coping_strategies": ["seek_immediate_help"],
-                "session_metadata": {},
+            "response": fallback_response,
+            "crisis_level": crisis_assessment["level"],
+            "crisis_explanation": "Technical error occurred",
+            "timestamp": datetime.utcnow(),
+            "resources_provided": ["crisis_hotline"],
+            "coping_strategies": ["seek_immediate_help"],
+            "session_metadata": {},
             "crisis_flag": False,
-                "configuration_warning": True,
-                "schedule_analysis": {"should_suggest_scheduling": False},
+            "configuration_warning": True,
+            "schedule_analysis": {"should_suggest_scheduling": False},
             "action_plan_analysis": {"should_suggest_action_plan": False},
             "error": str(error),
         }
