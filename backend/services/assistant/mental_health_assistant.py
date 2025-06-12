@@ -21,6 +21,7 @@ from .extractors import (
 from .crisis_intervention import CrisisInterventionManager
 from ..memory.types import MemoryItem, MemoryContext
 from ..memory.config import Config
+from ..memory.memoryService import MemoryService
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,9 @@ class MentalHealthAssistant:
 
         # Initialize extractors
         self._initialize_extractors()
+
+        # Initialize memory service
+        self.memory_service = MemoryService()
 
         # Check configuration
         self._check_configuration()
@@ -125,6 +129,7 @@ class MentalHealthAssistant:
         user_message: str,
         memory_context: Optional[MemoryContext] = None,
         user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate a mental health assistant response."""
 
@@ -133,6 +138,22 @@ class MentalHealthAssistant:
 
         # First, assess crisis level
         crisis_assessment = await self._assess_crisis_level(user_message)
+
+        # Get memory context from memory service if user_id is provided
+        if user_id and memory_context is None:
+            try:
+                memory_context = await self.memory_service.get_memory_context(
+                    user_id, user_message, conversation_id
+                )
+                logger.debug(
+                    f"Retrieved memory context for user {user_id}"
+                    + (f" in conversation {conversation_id}" if conversation_id else "")
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to retrieve memory context for user {user_id}: {e}"
+                )
+                memory_context = None
 
         # Build conversation context
         context = self._build_conversation_context(user_message, memory_context)
@@ -154,6 +175,34 @@ class MentalHealthAssistant:
                 await self._extract_all_metadata(user_message, response_text, context)
             )
 
+            # Store user message in memory if user_id is provided
+            memory_stored = False
+            if user_id:
+                try:
+                    memory_metadata = {
+                        "source": "chat_interface",
+                        "crisis_level": crisis_assessment["level"],
+                        "has_crisis_indicators": crisis_assessment.get(
+                            "crisis_flag", False
+                        ),
+                    }
+
+                    # Add conversation_id to metadata if provided
+                    if conversation_id:
+                        memory_metadata["conversation_id"] = conversation_id
+
+                    memory_result = await self.memory_service.process_memory(
+                        user_id=user_id,
+                        content=user_message,
+                        type="user_message",
+                        metadata=memory_metadata,
+                    )
+                    memory_stored = memory_result.get("stored", False)
+                    logger.debug(f"Memory storage for user {user_id}: {memory_stored}")
+                except Exception as e:
+                    logger.error(f"Failed to store memory for user {user_id}: {e}")
+                    memory_stored = False
+
             # Build final response
             final_response = self._build_final_response(
                 response_text,
@@ -162,6 +211,7 @@ class MentalHealthAssistant:
                 schedule_analysis,
                 action_plan_analysis,
                 config_warning,
+                memory_stored,
             )
 
             return final_response
@@ -225,6 +275,7 @@ USER MESSAGE: {user_message}
         schedule_analysis: Dict[str, Any],
         action_plan_analysis: Dict[str, Any],
         config_warning: Optional[str],
+        memory_stored: bool = False,
     ) -> Dict[str, Any]:
         """Build the final response dictionary."""
         return {
@@ -239,6 +290,7 @@ USER MESSAGE: {user_message}
             "configuration_warning": config_warning is not None,
             "schedule_analysis": schedule_analysis,
             "action_plan_analysis": action_plan_analysis,
+            "memory_stored": memory_stored,
         }
 
     def _create_fallback_response(
@@ -265,6 +317,7 @@ USER MESSAGE: {user_message}
             "configuration_warning": True,
             "schedule_analysis": {"should_suggest_scheduling": False},
             "action_plan_analysis": {"should_suggest_action_plan": False},
+            "memory_stored": False,
             "error": str(error),
         }
 
@@ -534,7 +587,7 @@ Extract and return the following metadata in JSON format:
                 )
 
                 # Initiate crisis intervention using the new manager
-                await CrisisInterventionManager.handle_crisis_intervention(
+                await self._handle_crisis_intervention(
                     user_id=user_id,
                     crisis_data=response_data,
                     user_message=message,
@@ -576,3 +629,21 @@ Extract and return the following metadata in JSON format:
                 "Consider calling a crisis hotline to talk through your feelings",
             ],
         }
+
+    async def _handle_crisis_intervention(
+        self,
+        user_id: str,
+        crisis_data: Dict[str, Any],
+        user_message: str,
+        conversation_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Handle crisis intervention by delegating to CrisisInterventionManager."""
+        # Import here to avoid circular imports
+        from .crisis_intervention import CrisisInterventionManager
+
+        return await CrisisInterventionManager.handle_crisis_intervention(
+            user_id=user_id,
+            crisis_data=crisis_data,
+            user_message=user_message,
+            conversation_context=conversation_context,
+        )

@@ -36,12 +36,13 @@ class MemoryProcessor:
     ) -> MemoryItem:
         """Create a base memory item."""
         memory_id = str(uuid.uuid4())
+        metadata = metadata or {}
+        metadata["user_id"] = user_id  # Store user_id in metadata for security
         return MemoryItem(
             id=memory_id,
-            userId=user_id,
             content=content,
             type=type,
-            metadata=metadata or {},
+            metadata=metadata,
             timestamp=datetime.utcnow(),
         )
 
@@ -105,18 +106,19 @@ class MemoryProcessor:
         is_chat_message: bool,
         is_assistant_message: bool,
     ) -> Dict[str, Any]:
-        """Process a single memory component."""
+        """Process a single memory component with simplified structure support."""
         score_metadata = score.metadata or {}
         component_content = score_metadata.get("component_content", base_memory.content)
-        memory_type = score_metadata.get("memory_type", "temporary_state")
-        storage_recommendation = score_metadata.get(
-            "storage_recommendation", "probably_skip"
-        )
+
+        # Use new simplified structure
+        memory_category = score_metadata.get("memory_category", "short_term")
+        is_meaningful = score_metadata.get("is_meaningful", False)
+        is_lasting = score_metadata.get("is_lasting", False)
+        is_symbolic = score_metadata.get("is_symbolic", False)
 
         # Create component memory
         component_memory = MemoryItem(
             id=f"{base_memory.id}_component_{score_metadata.get('component_index', 0)}",
-            userId=base_memory.userId,
             content=component_content,
             type=base_memory.type,
             metadata={
@@ -124,22 +126,33 @@ class MemoryProcessor:
                 "original_message": base_memory.content,
                 "component_index": score_metadata.get("component_index", 0),
                 "total_components": score_metadata.get("total_components", 1),
+                # Add the simple classification fields
+                "memory_category": memory_category,
+                "is_meaningful": is_meaningful,
+                "is_lasting": is_lasting,
+                "is_symbolic": is_symbolic,
             },
             timestamp=base_memory.timestamp,
         )
 
-        # Determine if we should store this component
-        should_store_somewhere = self._should_store_component(
-            is_chat_message, is_assistant_message, memory_type, storage_recommendation
+        # Determine if we should store this component using simplified logic
+        should_store_somewhere = self._should_store_component_simple(
+            is_chat_message,
+            is_assistant_message,
+            memory_category,
+            is_meaningful,
+            is_lasting,
         )
 
         if not should_store_somewhere:
             return {
                 "component_content": component_content,
-                "memory_type": memory_type,
-                "storage_recommendation": storage_recommendation,
+                "memory_category": memory_category,
+                "is_meaningful": is_meaningful,
+                "is_lasting": is_lasting,
+                "is_symbolic": is_symbolic,
                 "stored": False,
-                "reason": "Component did not meet therapeutic value criteria or was assistant message",
+                "reason": "Story naturally fades or was assistant message",
                 "score": {
                     "relevance": float(score.relevance),
                     "stability": float(score.stability),
@@ -150,8 +163,10 @@ class MemoryProcessor:
         # Component meets storage criteria
         return {
             "component_content": component_content,
-            "memory_type": memory_type,
-            "storage_recommendation": storage_recommendation,
+            "memory_category": memory_category,
+            "is_meaningful": is_meaningful,
+            "is_lasting": is_lasting,
+            "is_symbolic": is_symbolic,
             "stored": True,
             "component_memory": component_memory,
             "score": {
@@ -161,27 +176,34 @@ class MemoryProcessor:
             },
         }
 
-    def _should_store_component(
+    def _should_store_component_simple(
         self,
         is_chat_message: bool,
         is_assistant_message: bool,
-        memory_type: str,
-        storage_recommendation: str,
+        memory_category: str,
+        is_meaningful: bool,
+        is_lasting: bool,
     ) -> bool:
-        """Determine if a component should be stored."""
-        return (
-            (
-                is_chat_message and not is_assistant_message
-            )  # Store user messages in short-term
-            or (
-                not is_assistant_message
-                and memory_type in ["lasting_memory", "meaningful_connection"]
-            )  # Store significant user memories
-            or (
-                not is_assistant_message
-                and storage_recommendation in ["definitely_save", "probably_save"]
-            )  # Store recommended user memories
-        )
+        """
+        SIMPLE LOGIC: Should we store this component?
+
+        Rules:
+        - Never store assistant messages
+        - Always store user chat messages in short-term for context
+        - For long-term: meaningful + lasting = store, incidental = skip
+        """
+        # Never store assistant messages
+        if is_assistant_message:
+            return False
+
+        # Always store user chat messages for context (they'll go to short-term first)
+        if is_chat_message and not is_assistant_message:
+            return True
+
+        # For non-chat memories, use simple meaningful/lasting logic
+        is_meaningful_and_lasting = is_meaningful and is_lasting
+
+        return is_meaningful_and_lasting
 
     def _build_processing_result(
         self,
@@ -189,16 +211,31 @@ class MemoryProcessor:
         stored_components: List[Dict[str, Any]],
         all_results: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Build the final processing result."""
+        """Build the final processing result with simplified classification."""
         if not stored_components:
             return {
                 "needs_consent": False,
                 "stored": False,
-                "reason": "No components met storage criteria",
+                "reason": "No stories met preservation criteria",
                 "components": all_results,
                 "total_components": len(memory_scores),
                 "stored_components": 0,
             }
+
+        # Count simplified types
+        emotional_anchors = sum(
+            1
+            for c in stored_components
+            if c.get("memory_category") == "emotional_anchor"
+        )
+
+        long_term_memories = sum(
+            1 for c in stored_components if c.get("memory_category") == "long_term"
+        )
+
+        short_term_memories = sum(
+            1 for c in stored_components if c.get("memory_category") == "short_term"
+        )
 
         return {
             "needs_consent": False,
@@ -217,10 +254,9 @@ class MemoryProcessor:
                     for c in stored_components
                     if c.get("storage_details", {}).get("long_term")
                 ),
-                "emotional_anchors": sum(
-                    1
-                    for c in stored_components
-                    if c.get("memory_type") == "meaningful_connection"
-                ),
+                "emotional_anchors": emotional_anchors,
+                "long_term_memories": long_term_memories,
+                "short_term_memories": short_term_memories,
+                "simple_processing": True,
             },
         }

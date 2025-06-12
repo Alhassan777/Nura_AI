@@ -10,6 +10,9 @@ from .types import MemoryItem, MemoryContext, MemoryStats
 from .storage.redis_store import RedisStore
 from .storage.vector_store import VectorStore
 from services.audit.audit_logger import AuditLogger
+import dotenv
+
+dotenv.load_dotenv("backend/.env")
 
 
 class RetrievalProcessor:
@@ -26,28 +29,38 @@ class RetrievalProcessor:
         self.audit_logger = audit_logger
 
     async def get_memory_context(
-        self, user_id: str, query: Optional[str] = None
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> MemoryContext:
-        """Get memory context for a user."""
-        # Get short-term memories
-        short_term = await self.redis_store.get_user_memories(user_id)
+        """Get memory context for a user, optionally scoped to a conversation."""
+        # Get short-term memories (conversation-scoped if available)
+        if conversation_id:
+            short_term = await self.redis_store.get_conversation_memories(
+                conversation_id
+            )
+        else:
+            short_term = await self.redis_store.get_user_memories(user_id)
 
         # Get long-term memories
         long_term = []
         if query:
             # Use semantic search with the provided query
-            long_term = await self.vector_store.get_similar_memories(
-                user_id=user_id, query=query
+            search_results = await self.vector_store.similarity_search(
+                query=query, user_id=user_id, k=5
             )
+            long_term = self._convert_search_results_to_memories(search_results)
         else:
             # If no query provided, use the most recent short-term memory as context
             # to find relevant long-term memories
             if short_term:
                 # Use the most recent message as the query for semantic search
                 recent_message = short_term[0].content  # Redis returns newest first
-                long_term = await self.vector_store.get_similar_memories(
-                    user_id=user_id, query=recent_message, limit=3
+                search_results = await self.vector_store.similarity_search(
+                    query=recent_message, user_id=user_id, k=3
                 )
+                long_term = self._convert_search_results_to_memories(search_results)
 
         # Log memory access
         for memory in long_term:
@@ -63,8 +76,17 @@ class RetrievalProcessor:
     async def get_memory_stats(self, user_id: str) -> MemoryStats:
         """Get memory statistics for a user."""
         # Get counts from both stores
-        short_term_count = await self.redis_store.get_memory_count(user_id)
-        long_term_count = await self.vector_store.get_memory_count(user_id)
+        try:
+            short_term_memories = await self.redis_store.get_user_memories(user_id)
+            short_term_count = len(short_term_memories)
+        except Exception:
+            short_term_count = 0
+
+        try:
+            long_term_memories = await self.vector_store.get_user_memories(user_id)
+            long_term_count = len(long_term_memories)
+        except Exception:
+            long_term_count = 0
 
         return MemoryStats(
             total=short_term_count + long_term_count,
@@ -73,92 +95,131 @@ class RetrievalProcessor:
             sensitive=await self._get_sensitive_count(user_id),
         )
 
-    async def get_emotional_anchors(self, user_id: str) -> List[MemoryItem]:
-        """Get emotional anchors (meaningful connections) for a user."""
-        # Get all long-term memories
-        all_memories = await self.vector_store.get_user_memories(user_id)
+    async def get_emotional_anchors(
+        self, user_id: str, conversation_id: Optional[str] = None
+    ) -> List[MemoryItem]:
+        """Get emotional anchors for a user - symbolic memories that provide emotional grounding."""
+        try:
+            # Search both Redis and vector store for comprehensive results
+            anchors = []
 
-        # Filter for meaningful connections (emotional anchors) - be more strict
-        emotional_anchors = []
-        for memory in all_memories:
-            memory_type = memory.metadata.get("memory_type", "")
-            display_category = memory.metadata.get("display_category", "")
-            connection_type = memory.metadata.get("connection_type", "")
+            # Check Redis (short-term) first
+            try:
+                short_term_memories = await self.redis_store.get_user_memories(user_id)
+                for memory in short_term_memories:
+                    # Filter by conversation_id if provided
+                    if (
+                        conversation_id
+                        and memory.metadata.get("conversation_id") != conversation_id
+                    ):
+                        continue
 
-            # Only include if explicitly marked as meaningful_connection
-            # AND has connection_type (to ensure it's a proper anchor)
-            is_meaningful_connection = memory_type == "meaningful_connection"
-            is_emotional_anchor = display_category == "emotional_anchor"
-            has_connection_type = bool(connection_type)
+                    if memory.metadata.get("memory_category") == "emotional_anchor":
+                        anchors.append(memory)
+                        logging.debug(
+                            f"Found emotional anchor in Redis: {memory.content[:50]}..."
+                        )
+            except Exception as e:
+                logging.warning(f"Error checking Redis for emotional anchors: {str(e)}")
 
-            # Must be meaningful_connection AND have connection_type
-            # OR explicitly marked as emotional_anchor
-            if (
-                is_meaningful_connection and has_connection_type
-            ) or is_emotional_anchor:
-                emotional_anchors.append(memory)
+            # Check vector store (long-term)
+            try:
+                all_long_term = await self.vector_store.get_user_memories(user_id)
+                all_long_term = self._convert_memory_dicts_to_memories(all_long_term)
 
-        # Sort by anchor strength and significance
-        emotional_anchors.sort(
-            key=lambda m: (
-                {"strong": 3, "moderate": 2, "developing": 1}.get(
-                    m.metadata.get("anchor_strength", "developing"), 1
-                ),
-                {"critical": 4, "high": 3, "moderate": 2, "low": 1, "minimal": 0}.get(
-                    m.metadata.get("significance_level", "minimal"), 0
-                ),
-            ),
-            reverse=True,
+                for memory in all_long_term:
+                    # Filter by conversation_id if provided
+                    if (
+                        conversation_id
+                        and memory.metadata.get("conversation_id") != conversation_id
+                    ):
+                        continue
+
+                    if memory.metadata.get("memory_category") == "emotional_anchor":
+                        anchors.append(memory)
+                        logging.debug(
+                            f"Found emotional anchor in vector store: {memory.content[:50]}..."
+                        )
+            except Exception as e:
+                logging.warning(
+                    f"Error checking vector store for emotional anchors: {str(e)}"
+                )
+
+            logging.info(
+                f"Found {len(anchors)} emotional anchors for user {user_id}"
+                + (f" in conversation {conversation_id}" if conversation_id else "")
+            )
+            return anchors
+
+        except Exception as e:
+            logging.error(
+                f"Error retrieving emotional anchors for user {user_id}: {str(e)}"
+            )
+            return []
+
+    def _is_emotional_anchor(self, memory: MemoryItem) -> bool:
+        """Simple check: Is this memory an emotional anchor (symbolic)?"""
+        return (
+            memory.metadata.get("is_emotional_anchor", False)
+            or memory.metadata.get("memory_type") == "emotional_anchor"
+            or memory.metadata.get("memory_nature") == "emotional_anchor"
+            or "symbolic" in memory.metadata.get("memory_nature", "").lower()
+            or "anchor" in memory.metadata.get("memory_type", "").lower()
         )
 
-        return emotional_anchors
-
     async def get_regular_memories(
-        self, user_id: str, query: Optional[str] = None
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> List[MemoryItem]:
         """Get regular lasting memories (excluding emotional anchors) for a user."""
-        if query:
-            # Use semantic search
-            all_memories = await self.vector_store.get_similar_memories(
-                user_id=user_id, query=query
+        try:
+            if query:
+                # Use semantic search
+                search_results = await self.vector_store.similarity_search(
+                    query=query, user_id=user_id, k=20
+                )
+                all_memories = self._convert_search_results_to_memories(search_results)
+                logging.info(
+                    f"Query search returned {len(all_memories)} memories for user {user_id}"
+                )
+            else:
+                # Get all long-term memories
+                all_memories = await self.vector_store.get_user_memories(user_id)
+                logging.info(
+                    f"Vector store returned {len(all_memories)} memory dicts for user {user_id}"
+                )
+                all_memories = self._convert_memory_dicts_to_memories(all_memories)
+                logging.info(
+                    f"Converted to {len(all_memories)} MemoryItem objects for user {user_id}"
+                )
+
+            # Filter by conversation_id if provided
+            if conversation_id:
+                filtered_memories = []
+                for memory in all_memories:
+                    if memory.metadata.get("conversation_id") == conversation_id:
+                        filtered_memories.append(memory)
+                all_memories = filtered_memories
+                logging.info(
+                    f"Filtered to {len(all_memories)} memories for conversation {conversation_id}"
+                )
+
+            # NO FILTERING: Return all long-term memories regardless of category
+            # You should see ALL your stored memories, not just specific categories
+            logging.info(
+                f"Returning {len(all_memories)} memories for user {user_id}"
+                + (f" in conversation {conversation_id}" if conversation_id else "")
+                + " (no category filtering applied)"
             )
-        else:
-            # Get all long-term memories
-            all_memories = await self.vector_store.get_user_memories(user_id)
+            return all_memories
 
-        # Filter for regular lasting memories - exclude emotional anchors
-        regular_memories = []
-        for memory in all_memories:
-            memory_type = memory.metadata.get("memory_type", "")
-            display_category = memory.metadata.get("display_category", "")
-            connection_type = memory.metadata.get("connection_type", "")
-
-            # Include if:
-            # 1. Explicitly marked as lasting_memory
-            # 2. NOT a meaningful_connection with connection_type (that's an anchor)
-            # 3. NOT marked as emotional_anchor
-            is_lasting_memory = memory_type == "lasting_memory"
-            is_meaningful_connection_with_type = (
-                memory_type == "meaningful_connection" and bool(connection_type)
+        except Exception as e:
+            logging.error(
+                f"Error retrieving regular memories for user {user_id}: {str(e)}"
             )
-            is_emotional_anchor = display_category == "emotional_anchor"
-
-            # Include lasting memories that are NOT emotional anchors
-            if (
-                is_lasting_memory
-                and not is_meaningful_connection_with_type
-                and not is_emotional_anchor
-            ):
-                regular_memories.append(memory)
-            # Also include long-term storage memories that don't have specific classification
-            elif (
-                memory.metadata.get("storage_type") == "long_term"
-                and not memory_type
-                and not is_emotional_anchor
-            ):
-                regular_memories.append(memory)
-
-        return regular_memories
+            return []
 
     async def get_user_memories(
         self,
@@ -179,9 +240,21 @@ class RetrievalProcessor:
                 memory_dict = self._memory_to_dict(memory, "short_term")
                 all_memories.append(memory_dict)
 
-            # Convert long-term memories to dict format
-            for memory in long_term_memories:
-                memory_dict = self._memory_to_dict(memory, "long_term")
+            # Process long-term memories - they're already dictionaries from vector store
+            for memory_dict in long_term_memories:
+                # Vector store returns dictionaries, so we need to add storage_type
+                memory_dict = dict(memory_dict)  # Create a copy
+                memory_dict["storage_type"] = "long_term"
+
+                # Add PII detection if available
+                metadata = memory_dict.get("metadata", {})
+                if metadata.get("has_pii"):
+                    memory_dict["pii_detected"] = True
+                    memory_dict["risk_level"] = metadata.get("risk_level", "medium")
+                else:
+                    memory_dict["pii_detected"] = False
+                    memory_dict["risk_level"] = "low"
+
                 all_memories.append(memory_dict)
 
             # Apply date filtering if provided
@@ -193,7 +266,12 @@ class RetrievalProcessor:
             return all_memories
 
         except Exception as e:
-            self.audit_logger.log_error(user_id, "get_user_memories", str(e))
+            await self.audit_logger.log_event(
+                event_type="get_user_memories_error",
+                user_id=user_id,
+                level="ERROR",
+                details={"error": str(e)},
+            )
             raise e
 
     def _memory_to_dict(self, memory: MemoryItem, storage_type: str) -> Dict[str, Any]:
@@ -253,6 +331,85 @@ class RetrievalProcessor:
             filtered_memories.append(memory)
 
         return filtered_memories
+
+    def _convert_search_results_to_memories(
+        self, search_results: List[Dict[str, Any]]
+    ) -> List[MemoryItem]:
+        """Convert vector store search results to MemoryItem objects."""
+        memories = []
+        for result in search_results:
+            try:
+                memory = MemoryItem(
+                    id=result.get("memory_id", ""),
+                    content=result.get("content", ""),
+                    type=result["metadata"].get("type", "chat"),
+                    timestamp=datetime.fromisoformat(
+                        result["metadata"].get(
+                            "timestamp", datetime.utcnow().isoformat()
+                        )
+                    ),
+                    metadata=result.get("metadata", {}),
+                )
+                memories.append(memory)
+            except Exception as e:
+                logging.warning(f"Failed to convert search result to memory: {e}")
+        return memories
+
+    def _convert_memory_dicts_to_memories(
+        self, memory_dicts: List[Dict[str, Any]]
+    ) -> List[MemoryItem]:
+        """Convert memory dictionaries to MemoryItem objects."""
+        memories = []
+        for mem_dict in memory_dicts:
+            try:
+                # Ensure we have the required fields
+                if not mem_dict.get("memory_id") and not mem_dict.get("id"):
+                    logging.warning(
+                        f"Memory dict missing id/memory_id field: {mem_dict}"
+                    )
+                    continue
+
+                memory_id = mem_dict.get("memory_id") or mem_dict.get("id")
+                content = mem_dict.get("content", "")
+                metadata = mem_dict.get("metadata", {})
+
+                # Handle timestamp conversion more robustly
+                timestamp_str = mem_dict.get("timestamp")
+                if timestamp_str:
+                    if isinstance(timestamp_str, str):
+                        try:
+                            timestamp = datetime.fromisoformat(
+                                timestamp_str.replace("Z", "+00:00")
+                            )
+                        except ValueError:
+                            # Try parsing without timezone info
+                            timestamp = datetime.fromisoformat(
+                                timestamp_str.split("+")[0].split("Z")[0]
+                            )
+                    else:
+                        timestamp = timestamp_str  # Assume it's already a datetime
+                else:
+                    timestamp = datetime.utcnow()
+
+                memory = MemoryItem(
+                    id=memory_id,
+                    content=content,
+                    type=metadata.get("type", "chat"),
+                    timestamp=timestamp,
+                    metadata=metadata,
+                )
+                memories.append(memory)
+            except Exception as e:
+                logging.error(
+                    f"Failed to convert memory dict to memory: {e}, dict: {mem_dict}"
+                )
+                # Skip this memory rather than adding a broken one
+                continue
+
+        logging.info(
+            f"Converted {len(memories)} out of {len(memory_dicts)} memory dicts to MemoryItem objects"
+        )
+        return memories
 
     async def _generate_digest(self, memories: List[MemoryItem]) -> str:
         """Generate a digest of memories."""

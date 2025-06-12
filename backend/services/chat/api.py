@@ -365,12 +365,23 @@ async def send_message(
         db.commit()
         db.refresh(user_message)
 
+        # Get conversation-scoped memory context for assistant
+        memory_context = None
+        try:
+            memory_context = await memory_service.get_memory_context(
+                user_id=user_id,
+                query=request.content,
+                conversation_id=request.conversation_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get memory context: {e}")
+
         # Get response from mental health assistant
         try:
             # Use the new process_message method that includes crisis intervention
             assistant_response_data = await mental_health_assistant.generate_response(
                 user_message=request.content,
-                memory_context=None,  # Memory context would come from memory service
+                memory_context=memory_context,
                 user_id=user_id,
             )
 
@@ -695,13 +706,70 @@ async def report_crisis_situation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/conversations/{conversation_id}/end-session")
+async def end_conversation_session(
+    conversation_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """End a conversation session and handle memory promotion."""
+    try:
+        # Verify conversation belongs to user
+        conversation = (
+            db.query(Conversation)
+            .filter(
+                Conversation.id == conversation_id,
+                Conversation.user_id == user_id,
+            )
+            .first()
+        )
+
+        if not conversation:
+            raise HTTPException(
+                status_code=404, detail="Conversation not found or access denied"
+            )
+
+        # End the conversation session in memory service
+        session_result = await memory_service.end_conversation_session(
+            conversation_id, user_id
+        )
+
+        # Update conversation status
+        conversation.status = "ended"
+        conversation.updated_at = datetime.utcnow()
+        db.commit()
+
+        # Log session end
+        await log_system_event(
+            db=db,
+            user_id=user_id,
+            event_type="conversation_session_ended",
+            event_category="memory",
+            event_data={
+                "conversation_id": conversation_id,
+                "session_result": session_result,
+            },
+            severity="info",
+        )
+
+        return {
+            "conversation_id": conversation_id,
+            "status": "session_ended",
+            "memory_processing": session_result,
+        }
+
+    except Exception as e:
+        logger.error(f"Error ending conversation session {conversation_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.on_event("startup")
 async def initialize_chat_service():
     """Initialize chat service on startup."""
     try:
-        # Initialize memory service
-        await memory_service.initialize()
-        logger.info("Memory service initialized")
+        # Memory service is initialized in its constructor
+        # No need to call initialize() as it doesn't exist
+        logger.info("Memory service ready")
 
         logger.info("Chat service initialized successfully")
     except Exception as e:

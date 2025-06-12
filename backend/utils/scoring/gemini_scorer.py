@@ -96,106 +96,58 @@ CRITICAL: You must respond ONLY with valid JSON. Do not include any explanatory 
 
             try:
                 scoring_data = json.loads(response_text)
-                components = scoring_data.get("components", [])
 
-                # If no components found, treat as single component (backward compatibility)
-                if not components:
-                    components = [scoring_data]
-
+                # SIMPLIFIED: Use only basic structure - no more organic story elements
+                # Just treat the whole memory as one component with basic classification
                 memory_scores = []
 
-                for i, component_data in enumerate(components):
-                    # Extract component data
-                    component_content = component_data.get("content", memory.content)
-                    memory_type = component_data.get("memory_type", "temporary_state")
-                    significance_category = component_data.get(
-                        "significance_category", "routine_moment"
+                # Get basic classification fields directly from scoring data
+                memory_category = scoring_data.get("memory_category", "short_term")
+                is_meaningful = scoring_data.get("is_meaningful", False)
+                is_lasting = scoring_data.get("is_lasting", False)
+                is_symbolic = scoring_data.get("is_symbolic", False)
+                reasoning = scoring_data.get("reasoning", "")
+
+                # Create intuitive scores based on simple classification
+                if memory_category == "emotional_anchor":
+                    relevance_score = 0.9
+                    stability_score = 0.9
+                    explicitness_score = 0.8
+                elif memory_category == "long_term":
+                    relevance_score = 0.8
+                    stability_score = 0.8
+                    explicitness_score = 0.7
+                else:  # short_term
+                    relevance_score = 0.5
+                    stability_score = 0.4
+                    explicitness_score = 0.6
+
+                # Store simple metadata - no component system
+                metadata = {
+                    "component_content": memory.content,
+                    "component_index": 0,
+                    "total_components": 1,
+                    "original_message": memory.content,
+                    # Simple classification fields
+                    "memory_category": memory_category,
+                    "is_meaningful": is_meaningful,
+                    "is_lasting": is_lasting,
+                    "is_symbolic": is_symbolic,
+                    "reasoning": reasoning,
+                    # Basic info
+                    "gemini_used": True,
+                    "api_calls_used": 1,
+                    "simple_structure": True,
+                }
+
+                memory_scores.append(
+                    MemoryScore(
+                        relevance=relevance_score,
+                        stability=stability_score,
+                        explicitness=explicitness_score,
+                        metadata=metadata,
                     )
-                    significance_level = component_data.get(
-                        "significance_level", "minimal"
-                    )
-                    storage_recommendation = component_data.get(
-                        "storage_recommendation", "probably_skip"
-                    )
-                    reasoning = component_data.get("reasoning", "")
-
-                    # Extract meaningful connection fields if present
-                    connection_type = component_data.get("connection_type")
-                    emotional_significance = component_data.get(
-                        "emotional_significance"
-                    )
-                    personal_meaning = component_data.get("personal_meaning")
-                    anchor_strength = component_data.get("anchor_strength")
-                    display_category = component_data.get("display_category")
-
-                    # Map significance to numeric scores for compatibility
-                    significance_to_score = {
-                        "critical": 0.95,
-                        "high": 0.85,
-                        "moderate": 0.65,
-                        "low": 0.35,
-                        "minimal": 0.15,
-                    }
-
-                    base_score = significance_to_score.get(significance_level, 0.5)
-
-                    # Adjust scores based on category
-                    if significance_category == "life_changing":
-                        relevance_score = base_score
-                        stability_score = min(1.0, base_score + 0.2)
-                        explicitness_score = base_score
-                    elif significance_category == "emotional_insight":
-                        relevance_score = min(1.0, base_score + 0.15)
-                        stability_score = base_score
-                        explicitness_score = min(1.0, base_score + 0.1)
-                    elif significance_category == "therapeutic_foundation":
-                        relevance_score = min(1.0, base_score + 0.2)
-                        stability_score = min(1.0, base_score + 0.15)
-                        explicitness_score = base_score
-                    elif significance_category == "meaningful_connection":
-                        relevance_score = base_score
-                        stability_score = min(1.0, base_score + 0.1)
-                        explicitness_score = base_score
-                    else:  # routine_moment
-                        relevance_score = base_score
-                        stability_score = base_score
-                        explicitness_score = base_score
-
-                    # Store component metadata
-                    metadata = {
-                        "component_content": component_content,
-                        "component_index": i,
-                        "total_components": len(components),
-                        "original_message": memory.content,
-                        "memory_type": memory_type,
-                        "significance_category": significance_category,
-                        "significance_level": significance_level,
-                        "storage_recommendation": storage_recommendation,
-                        "reasoning": reasoning,
-                        "gemini_used": True,
-                        "api_calls_used": 1,
-                    }
-
-                    # Add meaningful connection fields if they exist
-                    if connection_type:
-                        metadata["connection_type"] = connection_type
-                    if emotional_significance:
-                        metadata["emotional_significance"] = emotional_significance
-                    if personal_meaning:
-                        metadata["personal_meaning"] = personal_meaning
-                    if anchor_strength:
-                        metadata["anchor_strength"] = anchor_strength
-                    if display_category:
-                        metadata["display_category"] = display_category
-
-                    memory_scores.append(
-                        MemoryScore(
-                            relevance=relevance_score,
-                            stability=stability_score,
-                            explicitness=explicitness_score,
-                            metadata=metadata,
-                        )
-                    )
+                )
 
                 return memory_scores
 

@@ -12,6 +12,7 @@ This service handles the complete memory processing workflow:
 
 import asyncio
 import os
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uuid
@@ -31,6 +32,8 @@ from .storage_processor import StorageProcessor
 from .retrieval_processor import RetrievalProcessor
 from ..privacy.processors.privacy_processor import PrivacyProcessor
 from ..privacy.processors.gdpr_processor import GDPRProcessor
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryService:
@@ -141,10 +144,10 @@ class MemoryService:
                     stability=component_result["score"]["stability"],
                     explicitness=component_result["score"]["explicitness"],
                     metadata={
-                        "memory_type": component_result["memory_type"],
-                        "storage_recommendation": component_result[
-                            "storage_recommendation"
-                        ],
+                        "memory_category": component_result["memory_category"],
+                        "is_meaningful": component_result["is_meaningful"],
+                        "is_lasting": component_result["is_lasting"],
+                        "is_symbolic": component_result["is_symbolic"],
                         "component_content": component_result["component_content"],
                     },
                 )
@@ -186,24 +189,38 @@ class MemoryService:
 
     # Retrieval methods - delegate to retrieval processor
     async def get_memory_context(
-        self, user_id: str, query: Optional[str] = None
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> MemoryContext:
-        """Get memory context for a user."""
-        return await self.retrieval_processor.get_memory_context(user_id, query)
+        """Get memory context for a user, optionally scoped to a conversation."""
+        return await self.retrieval_processor.get_memory_context(
+            user_id, query, conversation_id
+        )
 
     async def get_memory_stats(self, user_id: str) -> MemoryStats:
         """Get memory statistics for a user."""
         return await self.retrieval_processor.get_memory_stats(user_id)
 
-    async def get_emotional_anchors(self, user_id: str) -> List[MemoryItem]:
-        """Get emotional anchors (meaningful connections) for a user."""
-        return await self.retrieval_processor.get_emotional_anchors(user_id)
+    async def get_emotional_anchors(
+        self, user_id: str, conversation_id: Optional[str] = None
+    ) -> List[MemoryItem]:
+        """Get emotional anchors (meaningful connections) for a user, optionally filtered by conversation."""
+        return await self.retrieval_processor.get_emotional_anchors(
+            user_id, conversation_id
+        )
 
     async def get_regular_memories(
-        self, user_id: str, query: Optional[str] = None
+        self,
+        user_id: str,
+        query: Optional[str] = None,
+        conversation_id: Optional[str] = None,
     ) -> List[MemoryItem]:
-        """Get regular lasting memories (excluding emotional anchors) for a user."""
-        return await self.retrieval_processor.get_regular_memories(user_id, query)
+        """Get regular lasting memories (excluding emotional anchors) for a user, optionally filtered by conversation."""
+        return await self.retrieval_processor.get_regular_memories(
+            user_id, query, conversation_id
+        )
 
     async def get_user_memories(
         self,
@@ -230,10 +247,9 @@ class MemoryService:
                 user_id=user_id,
                 memory=MemoryItem(
                     id=memory_id,
-                    userId=user_id,
                     content="[DELETED]",
                     type="deleted",
-                    metadata={},
+                    metadata={"user_id": user_id},
                     timestamp=datetime.utcnow(),
                 ),
             )
@@ -246,8 +262,8 @@ class MemoryService:
         stats = await self.get_memory_stats(user_id)
 
         # Clear both stores
-        await self.redis_store.clear_memories(user_id)
-        await self.vector_store.clear_memories(user_id)
+        await self.redis_store.clear_user_memories(user_id)
+        await self.vector_store.clear_user_memories(user_id)
 
         # Log clearing
         await self.audit_logger.log_memory_cleared(user_id=user_id, count=stats.total)
@@ -444,11 +460,11 @@ class MemoryService:
                     if anonymized_content != memory.content:
                         long_term_memory = MemoryItem(
                             id=memory.id + "_long",
-                            userId=user_id,
                             content=anonymized_content,
                             type=memory.type,
                             metadata={
                                 **memory.metadata,
+                                "user_id": user_id,
                                 "storage_type": "long_term",
                                 "anonymized": True,
                                 "original_memory_id": memory.id,
@@ -456,7 +472,7 @@ class MemoryService:
                             timestamp=memory.timestamp,
                         )
 
-                        await self.vector_store.add_memory(user_id, long_term_memory)
+                        await self.vector_store.store_memory(user_id, long_term_memory)
                         results["anonymized"].append(memory.id)
                     else:
                         # No PII found, treat as keep
@@ -466,11 +482,11 @@ class MemoryService:
                     # Move to long-term storage as-is
                     long_term_memory = MemoryItem(
                         id=memory.id + "_long",
-                        userId=user_id,
                         content=memory.content,
                         type=memory.type,
                         metadata={
                             **memory.metadata,
+                            "user_id": user_id,
                             "storage_type": "long_term",
                             "user_approved": True,
                             "original_memory_id": memory.id,
@@ -478,13 +494,266 @@ class MemoryService:
                         timestamp=memory.timestamp,
                     )
 
-                    await self.vector_store.add_memory(user_id, long_term_memory)
+                    await self.vector_store.store_memory(user_id, long_term_memory)
                     results["kept"].append(memory.id)
 
             except Exception as e:
                 results["errors"].append({"memory_id": memory.id, "error": str(e)})
 
         # Clear short-term memories after processing
-        await self.redis_store.clear_memories(user_id)
+        await self.redis_store.clear_user_memories(user_id)
 
         return results
+
+    # Chat session management methods
+    async def end_chat_session(self, user_id: str) -> Dict[str, Any]:
+        """End a chat session and flush short-term memories while preserving long-term ones."""
+        try:
+            # Get current session stats before clearing
+            stats_before = await self.get_memory_stats(user_id)
+
+            # Get short-term memories for logging
+            short_term_memories = await self.redis_store.get_user_memories(user_id)
+
+            # Clear Redis (short-term memories) - use correct method name
+            await self.redis_store.clear_user_memories(user_id)
+
+            # Get stats after clearing (should only show long-term now)
+            stats_after = await self.get_memory_stats(user_id)
+
+            session_summary = {
+                "user_id": user_id,
+                "session_ended_at": datetime.utcnow().isoformat(),
+                "stats_before": {
+                    "total": stats_before.total,
+                    "short_term": stats_before.short_term,
+                    "long_term": stats_before.long_term,
+                },
+                "stats_after": {
+                    "total": stats_after.total,
+                    "short_term": stats_after.short_term,
+                    "long_term": stats_after.long_term,
+                },
+                "cleared_memories": len(short_term_memories),
+                "preserved_memories": stats_after.long_term,
+                "memory_types_cleared": [
+                    memory.metadata.get("memory_type", "unknown")
+                    for memory in short_term_memories
+                ],
+                "meaningful_connections_preserved": len(
+                    [
+                        memory
+                        for memory in short_term_memories
+                        if memory.metadata.get("memory_type") == "meaningful_connection"
+                        and memory.metadata.get("should_store_long_term", False)
+                    ]
+                ),
+            }
+
+            # Log session end
+            await self.audit_logger.log_event(
+                event_type="chat_session_ended",
+                user_id=user_id,
+                level="INFO",
+                details=session_summary,
+            )
+
+            return session_summary
+
+        except Exception as e:
+            logger.error(f"Error ending chat session for user {user_id}: {e}")
+            return {
+                "user_id": user_id,
+                "error": str(e),
+                "session_ended_at": datetime.utcnow().isoformat(),
+                "status": "error",
+            }
+
+    async def get_chat_session_preview(self, user_id: str) -> Dict[str, Any]:
+        """Get preview of what will be cleared vs preserved when session ends."""
+        try:
+            # Get current memories
+            short_term_memories = await self.redis_store.get_user_memories(user_id)
+            long_term_count = len(await self.vector_store.get_user_memories(user_id))
+
+            # Categorize short-term memories
+            will_be_cleared = []
+            should_be_preserved = []
+
+            for memory in short_term_memories:
+                memory_type = memory.metadata.get("memory_type", "unknown")
+                should_store_long_term = memory.metadata.get(
+                    "should_store_long_term", False
+                )
+
+                memory_summary = {
+                    "id": memory.id,
+                    "content": (
+                        memory.content[:100] + "..."
+                        if len(memory.content) > 100
+                        else memory.content
+                    ),
+                    "memory_type": memory_type,
+                    "timestamp": memory.timestamp.isoformat(),
+                }
+
+                if should_store_long_term or memory_type in [
+                    "lasting_memory",
+                    "meaningful_connection",
+                ]:
+                    should_be_preserved.append(memory_summary)
+                else:
+                    will_be_cleared.append(memory_summary)
+
+            return {
+                "user_id": user_id,
+                "session_preview": {
+                    "total_short_term": len(short_term_memories),
+                    "will_be_cleared": len(will_be_cleared),
+                    "should_be_preserved": len(should_be_preserved),
+                    "already_preserved": long_term_count,
+                },
+                "memories_to_clear": will_be_cleared,
+                "memories_to_preserve": should_be_preserved,
+                "recommendation": (
+                    "Safe to end session - important memories are preserved"
+                    if should_be_preserved or long_term_count > 0
+                    else "Consider if any recent insights should be manually saved"
+                ),
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting session preview for user {user_id}: {e}")
+            return {"user_id": user_id, "error": str(e), "status": "error"}
+
+    # MISSING METHODS - Add these to fix API endpoints
+    async def process_memory_dual_storage(
+        self,
+        user_id: str,
+        content: str,
+        type: str = "chat",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Process memory using dual storage strategy (API endpoint compatibility)."""
+        return await self.process_memory(
+            user_id=user_id,
+            content=content,
+            type=type,
+            metadata=metadata,
+        )
+
+    async def process_dual_storage_consent(
+        self,
+        user_id: str,
+        memory_id: str,
+        original_content: str,
+        user_consent: Dict[str, Any],
+        type: str = "chat",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Process dual storage consent (API endpoint compatibility)."""
+        return await self.process_memory_with_consent(
+            user_id=user_id,
+            memory_id=memory_id,
+            original_content=original_content,
+            user_consent=user_consent,
+            type=type,
+            metadata=metadata,
+        )
+
+    # Conversation lifecycle management methods
+    async def end_conversation_session(
+        self, conversation_id: str, user_id: str
+    ) -> Dict[str, Any]:
+        """
+        End a conversation session and handle memory promotion.
+
+        Args:
+            conversation_id: Conversation ID
+            user_id: User ID (for security validation)
+
+        Returns:
+            Results of session end and memory promotion
+        """
+        try:
+            # End the session and get memories to promote
+            session_result = await self.redis_store.end_conversation_session(
+                conversation_id, user_id, promote_important=True
+            )
+
+            # Process any memories that should be promoted to long-term storage
+            promotion_results = []
+            for memory_info in session_result.get("memories_to_promote", []):
+                memory = memory_info["memory"]
+                reason = memory_info["reason"]
+
+                try:
+                    # Create a new memory item for long-term storage
+                    long_term_memory = MemoryItem(
+                        id=str(uuid.uuid4()),  # New ID for long-term storage
+                        content=memory.content,
+                        type="promoted_from_conversation",
+                        metadata={
+                            **memory.metadata,
+                            "original_conversation_id": conversation_id,
+                            "promotion_reason": reason,
+                            "promoted_at": datetime.utcnow().isoformat(),
+                            "storage_type": "long_term",
+                        },
+                        timestamp=memory.timestamp,
+                    )
+
+                    # Store in vector store
+                    stored = await self.vector_store.store_memory(
+                        user_id, long_term_memory
+                    )
+
+                    promotion_results.append(
+                        {
+                            "original_memory_id": memory.id,
+                            "promoted_memory_id": long_term_memory.id,
+                            "promoted": stored,
+                            "reason": reason,
+                        }
+                    )
+
+                except Exception as e:
+                    logger.error(f"Failed to promote memory {memory.id}: {e}")
+                    promotion_results.append(
+                        {
+                            "original_memory_id": memory.id,
+                            "promoted": False,
+                            "error": str(e),
+                            "reason": reason,
+                        }
+                    )
+
+            return {
+                "conversation_id": conversation_id,
+                "session_ended": session_result.get("session_ended", False),
+                "memories_cleared": session_result.get("memories_cleared", 0),
+                "memories_promoted": len(
+                    [r for r in promotion_results if r.get("promoted")]
+                ),
+                "promotion_details": promotion_results,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to end conversation session {conversation_id}: {e}")
+            return {
+                "conversation_id": conversation_id,
+                "session_ended": False,
+                "error": str(e),
+            }
+
+    async def clear_conversation_memories(self, conversation_id: str) -> bool:
+        """
+        Clear all memories for a conversation (without promotion).
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Success status
+        """
+        return await self.redis_store.clear_conversation_memories(conversation_id)

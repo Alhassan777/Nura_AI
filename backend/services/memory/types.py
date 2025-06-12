@@ -32,6 +32,19 @@ class MemoryContext:
     long_term: List[MemoryItem]
     digest: str
 
+    # Backward compatibility properties
+    @property
+    def short_term_memories(self) -> List[MemoryItem]:
+        return self.short_term
+
+    @property
+    def long_term_memories(self) -> List[MemoryItem]:
+        return self.long_term
+
+    @property
+    def summary(self) -> str:
+        return self.digest
+
 
 @dataclass
 class MemoryConfig:
@@ -49,3 +62,22 @@ class MemoryStats:
     short_term: int
     long_term: int
     sensitive: int
+
+    # Backward compatibility properties
+    @property
+    def redis_count(self) -> int:
+        return self.short_term
+
+    @property
+    def vector_count(self) -> int:
+        return self.long_term
+
+    @property
+    def emotional_anchors(self) -> int:
+        # This would need to be computed separately, return 0 for now
+        return 0
+
+    @property
+    def regular_memories(self) -> int:
+        # This would be long_term minus emotional_anchors
+        return self.long_term

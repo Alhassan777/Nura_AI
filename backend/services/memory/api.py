@@ -77,6 +77,7 @@ class DualStorageConsentResponse(BaseModel):
 
 class MemoryContextRequest(BaseModel):
     query: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class MemoryContextResponse(BaseModel):
@@ -168,15 +169,16 @@ async def process_memory(
 async def get_memory_context(
     request: MemoryContextRequest, user_id: str = Depends(get_current_user_id)
 ):
-    """Get the current memory context for a user. User authenticated via JWT."""
+    """Get relevant memory context for a query, optionally filtered by conversation. JWT secured."""
     try:
         context = await memory_service.get_memory_context(
-            user_id=user_id, query=request.query
+            user_id, query=request.query, conversation_id=request.conversation_id
         )
         return MemoryContextResponse(
             context=context, configuration_status=get_configuration_status()
         )
     except Exception as e:
+        logger.error(f"Error getting memory context for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -302,13 +304,21 @@ async def process_memory_with_dual_storage_consent(
 
 
 @router.get("/emotional-anchors")
-async def get_emotional_anchors(user_id: str = Depends(get_current_user_id)):
-    """Get emotional anchors for the authenticated user. JWT secured."""
+async def get_emotional_anchors(
+    conversation_id: Optional[str] = Query(
+        None, description="Filter by conversation ID"
+    ),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Get emotional anchors for the authenticated user, optionally filtered by conversation. JWT secured."""
     try:
-        emotional_anchors = await memory_service.get_emotional_anchors(user_id)
+        emotional_anchors = await memory_service.get_emotional_anchors(
+            user_id, conversation_id
+        )
         return {
             "emotional_anchors": [asdict(anchor) for anchor in emotional_anchors],
             "count": len(emotional_anchors),
+            "conversation_id": conversation_id,
             "configuration_status": get_configuration_status(),
         }
     except Exception as e:
@@ -319,15 +329,21 @@ async def get_emotional_anchors(user_id: str = Depends(get_current_user_id)):
 @router.get("/regular-memories")
 async def get_regular_memories(
     query: Optional[str] = Query(None, description="Search query for semantic search"),
+    conversation_id: Optional[str] = Query(
+        None, description="Filter by conversation ID"
+    ),
     user_id: str = Depends(get_current_user_id),
 ):
-    """Get regular lasting memories for the authenticated user. JWT secured."""
+    """Get regular lasting memories for the authenticated user, optionally filtered by conversation. JWT secured."""
     try:
-        regular_memories = await memory_service.get_regular_memories(user_id, query)
+        regular_memories = await memory_service.get_regular_memories(
+            user_id, query, conversation_id
+        )
         return {
             "regular_memories": [asdict(memory) for memory in regular_memories],
             "count": len(regular_memories),
             "query": query,
+            "conversation_id": conversation_id,
             "configuration_status": get_configuration_status(),
         }
     except Exception as e:
@@ -336,11 +352,20 @@ async def get_regular_memories(
 
 
 @router.get("/all-long-term")
-async def get_all_long_term_memories(user_id: str = Depends(get_current_user_id)):
-    """Get all long-term memories categorized by type. JWT secured."""
+async def get_all_long_term_memories(
+    conversation_id: Optional[str] = Query(
+        None, description="Filter by conversation ID"
+    ),
+    user_id: str = Depends(get_current_user_id),
+):
+    """Get all long-term memories categorized by type, optionally filtered by conversation. JWT secured."""
     try:
-        emotional_anchors = await memory_service.get_emotional_anchors(user_id)
-        regular_memories = await memory_service.get_regular_memories(user_id)
+        emotional_anchors = await memory_service.get_emotional_anchors(
+            user_id, conversation_id
+        )
+        regular_memories = await memory_service.get_regular_memories(
+            user_id, None, conversation_id
+        )
 
         return {
             "emotional_anchors": [asdict(anchor) for anchor in emotional_anchors],
@@ -350,6 +375,7 @@ async def get_all_long_term_memories(user_id: str = Depends(get_current_user_id)
                 "regular_memories": len(regular_memories),
                 "total": len(emotional_anchors) + len(regular_memories),
             },
+            "conversation_id": conversation_id,
             "configuration_status": get_configuration_status(),
         }
     except Exception as e:
@@ -466,7 +492,17 @@ async def push_memory(
             memory_id = None
             components = result.get("components", [])
             if components:
-                memory_id = components[0].get("component_memory", {}).get("id")
+                # With the basic system, we now have stored_memories instead of components
+                stored_memories = components[0].get("stored_memories", {})
+                if stored_memories:
+                    # Try to get memory ID from either short-term or long-term storage
+                    short_term = stored_memories.get("short_term")
+                    long_term = stored_memories.get("long_term")
+                    memory_id = (
+                        (long_term.id if long_term else short_term.id)
+                        if (long_term or short_term)
+                        else None
+                    )
 
             return PushMemoryResponse(
                 success=True, memory_id=memory_id, message="Memory stored successfully"
@@ -488,3 +524,23 @@ async def push_memory(
     except Exception as e:
         logger.error(f"Failed to store memory for user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to store memory: {str(e)}")
+
+
+@router.post("/end-chat-session")
+async def end_chat_session(user_id: str = Depends(get_current_user_id)):
+    """End chat session and flush short-term memories. User authenticated via JWT."""
+    try:
+        result = await memory_service.end_chat_session(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chat-session-preview")
+async def get_chat_session_preview(user_id: str = Depends(get_current_user_id)):
+    """Get preview of what will happen when chat session ends. User authenticated via JWT."""
+    try:
+        result = await memory_service.get_chat_session_preview(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

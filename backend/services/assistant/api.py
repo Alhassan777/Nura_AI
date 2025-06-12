@@ -3,7 +3,7 @@ Assistant Service API - Mental health assistant functionality.
 Provides AI-powered mental health support and crisis detection.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -11,6 +11,7 @@ import logging
 
 # Internal imports
 from .mental_health_assistant import MentalHealthAssistant
+from utils.auth import get_current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,8 @@ mental_health_assistant = MentalHealthAssistant()
 # Pydantic models for API
 class ChatRequest(BaseModel):
     message: str
-    user_id: Optional[str] = None
     memory_context: Optional[Dict[str, Any]] = None
+    conversation_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -38,6 +39,9 @@ class ChatResponse(BaseModel):
     crisis_flag: bool
     configuration_warning: Optional[bool] = None
     timestamp: str
+    memory_stored: bool
+    schedule_analysis: Optional[Dict[str, Any]] = None
+    action_plan_analysis: Optional[Dict[str, Any]] = None
 
 
 class CrisisAssessmentRequest(BaseModel):
@@ -51,8 +55,10 @@ class CrisisAssessmentResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_with_assistant(request: ChatRequest):
-    """Generate a mental health assistant response."""
+async def chat_with_assistant(
+    request: ChatRequest, user_id: str = Depends(get_current_user_id)
+):
+    """Generate a mental health assistant response. User authenticated via JWT."""
     try:
         # Convert memory context if provided
         memory_context = None
@@ -64,7 +70,8 @@ async def chat_with_assistant(request: ChatRequest):
         response_data = await mental_health_assistant.generate_response(
             user_message=request.message,
             memory_context=memory_context,
-            user_id=request.user_id,
+            user_id=user_id,
+            conversation_id=request.conversation_id,
         )
 
         return ChatResponse(
@@ -77,6 +84,9 @@ async def chat_with_assistant(request: ChatRequest):
             crisis_flag=response_data["crisis_flag"],
             configuration_warning=response_data.get("configuration_warning"),
             timestamp=response_data["timestamp"].isoformat(),
+            memory_stored=response_data["memory_stored"],
+            schedule_analysis=response_data.get("schedule_analysis"),
+            action_plan_analysis=response_data.get("action_plan_analysis"),
         )
 
     except Exception as e:

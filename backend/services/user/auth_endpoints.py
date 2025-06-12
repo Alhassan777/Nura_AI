@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, EmailStr
 import os
+import asyncio
 
 # Import unified authentication system
 from utils.auth import get_current_user_id, get_authenticated_user, AuthenticatedUser
@@ -28,8 +29,33 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
     logger.error("Supabase configuration missing: URL or Service Role Key not set")
 
-# Initialize Supabase admin client
+# Initialize Supabase admin client with basic configuration
 supabase_admin: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+
+# Helper function to retry Supabase operations with exponential backoff
+async def retry_supabase_operation(operation, max_retries=3, base_delay=1):
+    """Retry a Supabase operation with exponential backoff for network issues."""
+    for attempt in range(max_retries):
+        try:
+            return operation()
+        except Exception as e:
+            if (
+                "handshake" in str(e).lower()
+                or "timeout" in str(e).lower()
+                or "ssl" in str(e).lower()
+            ):
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)  # Exponential backoff
+                    logger.warning(
+                        f"Supabase operation failed (attempt {attempt + 1}/{max_retries}), retrying in {delay}s: {str(e)}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+            # Re-raise if not a network error or max retries reached
+            raise e
+    return None
+
 
 # Router
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -90,8 +116,10 @@ async def login_user(request: UserLoginRequest) -> UserLoginResponse:
     """
     try:
         # Authenticate with Supabase
-        auth_response = supabase_admin.auth.sign_in_with_password(
-            {"email": request.email, "password": request.password}
+        auth_response = await retry_supabase_operation(
+            lambda: supabase_admin.auth.sign_in_with_password(
+                {"email": request.email, "password": request.password}
+            )
         )
 
         if not auth_response.user:
@@ -156,17 +184,19 @@ async def signup_user(request: UserSignupRequest) -> UserSignupResponse:
     """
     try:
         # Create user in Supabase
-        auth_response = supabase_admin.auth.sign_up(
-            {
-                "email": request.email,
-                "password": request.password,
-                "options": {
-                    "data": {
-                        "full_name": request.full_name,
-                        "phone_number": request.phone_number,
-                    }
-                },
-            }
+        auth_response = await retry_supabase_operation(
+            lambda: supabase_admin.auth.sign_up(
+                {
+                    "email": request.email,
+                    "password": request.password,
+                    "options": {
+                        "data": {
+                            "full_name": request.full_name,
+                            "phone_number": request.phone_number,
+                        }
+                    },
+                }
+            )
         )
 
         if not auth_response.user:
@@ -235,8 +265,10 @@ async def resend_verification_email(
     """
     try:
         # Request verification email from Supabase
-        response = supabase_admin.auth.resend(
-            {"type": "signup", "email": request.email}
+        response = await retry_supabase_operation(
+            lambda: supabase_admin.auth.resend(
+                {"type": "signup", "email": request.email}
+            )
         )
 
         return PasswordResetResponse(
@@ -261,7 +293,9 @@ async def forgot_password(request: PasswordResetRequest) -> PasswordResetRespons
     """
     try:
         # Request password reset from Supabase
-        response = supabase_admin.auth.reset_password_email(request.email)
+        response = await retry_supabase_operation(
+            lambda: supabase_admin.auth.reset_password_email(request.email)
+        )
 
         return PasswordResetResponse(
             success=True,
@@ -386,7 +420,9 @@ async def delete_user_account(
     try:
         # Delete from Supabase
         try:
-            supabase_admin.auth.admin.delete_user(user_id)
+            await retry_supabase_operation(
+                lambda: supabase_admin.auth.admin.delete_user(user_id)
+            )
             logger.info(f"Deleted user {user_id} from Supabase")
         except Exception as e:
             logger.error(f"Failed to delete user from Supabase: {str(e)}")
@@ -418,11 +454,12 @@ async def delete_user_account(
             detail="Account deletion failed",
         )
 
-
-# Health check
+        # Health check
         try:
             # Test if we can connect to Supabase
-            test_response = supabase_admin.auth.get_user("test-user-id")
+            test_response = await retry_supabase_operation(
+                lambda: supabase_admin.auth.get_user("test-user-id")
+            )
             supabase_status = "healthy"
         except Exception as e:
             supabase_status = "error"
@@ -463,7 +500,9 @@ async def test_email_verification(request: PasswordResetRequest) -> Dict[str, An
 
         # Check if user exists in Supabase
         try:
-            user_response = supabase_admin.auth.admin.get_user_by_email(request.email)
+            user_response = await retry_supabase_operation(
+                lambda: supabase_admin.auth.admin.get_user_by_email(request.email)
+            )
             if user_response.user:
                 user = user_response.user
                 logger.info(
@@ -472,8 +511,10 @@ async def test_email_verification(request: PasswordResetRequest) -> Dict[str, An
 
                 # Try to resend verification email
                 try:
-                    resend_response = supabase_admin.auth.resend(
-                        {"type": "signup", "email": request.email}
+                    resend_response = await retry_supabase_operation(
+                        lambda: supabase_admin.auth.resend(
+                            {"type": "signup", "email": request.email}
+                        )
                     )
 
                     return {

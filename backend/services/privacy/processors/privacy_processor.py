@@ -90,7 +90,7 @@ class PrivacyProcessor:
     async def get_pending_consent_memories(self, user_id: str) -> Dict[str, Any]:
         """Get memories that are pending PII consent for long-term storage."""
         # Get all short-term memories
-        short_term_memories = await self.redis_store.get_memories(user_id)
+        short_term_memories = await self.redis_store.get_user_memories(user_id)
 
         # Filter for memories pending consent
         pending_memories = [
@@ -154,7 +154,7 @@ class PrivacyProcessor:
         results = {"processed": [], "errors": [], "summary": {}}
 
         # Get all short-term memories
-        short_term_memories = await self.redis_store.get_memories(user_id)
+        short_term_memories = await self.redis_store.get_user_memories(user_id)
 
         # Filter for memories pending consent
         pending_memories = {
@@ -183,6 +183,11 @@ class PrivacyProcessor:
                     await self._process_approved_memory(
                         user_id, memory, user_consent, results
                     )
+                elif action == "anonymize":
+                    # Process the memory with anonymization
+                    await self._process_anonymized_memory(
+                        user_id, memory, user_consent, results
+                    )
                 elif action == "deny":
                     results["processed"].append(
                         {"memory_id": memory_id, "action": "denied"}
@@ -192,7 +197,7 @@ class PrivacyProcessor:
                 memory.metadata["pending_long_term_consent"] = False
                 memory.metadata["consent_processed"] = True
                 memory.metadata["consent_action"] = action
-                await self.redis_store.add_memory(user_id, memory)  # Update in Redis
+                await self.redis_store.store_memory(user_id, memory)  # Update in Redis
 
             except Exception as e:
                 results["errors"].append({"memory_id": memory_id, "error": str(e)})
@@ -306,6 +311,61 @@ class PrivacyProcessor:
                         "long_term_content": long_term_content,
                     }
                 )
+
+    async def _process_anonymized_memory(
+        self,
+        user_id: str,
+        memory: MemoryItem,
+        user_consent: Dict[str, Any],
+        results: Dict[str, Any],
+    ):
+        """Process a memory with anonymization applied."""
+        # Detect PII and anonymize all of it
+        pii_results = await self.pii_detector.detect_pii(memory)
+
+        if not pii_results.get("has_pii", False):
+            # No PII detected, treat as normal approval
+            await self._process_approved_memory(user_id, memory, user_consent, results)
+            return
+
+        # Create anonymization consent for all detected PII
+        auto_consent = {}
+        for item in pii_results.get("detected_items", []):
+            auto_consent[item["id"]] = "anonymize"
+
+        # Apply anonymization
+        anonymized_content = await self.pii_detector.apply_granular_consent(
+            memory.content, "long_term", auto_consent, pii_results
+        )
+
+        # Create anonymized memory for long-term storage
+        anonymized_memory = MemoryItem(
+            id=memory.id + "_anonymized",
+            content=anonymized_content,
+            type=memory.type,
+            metadata={
+                **memory.metadata,
+                "storage_type": "long_term",
+                "user_approved": True,
+                "anonymized": True,
+                "original_pii_count": len(pii_results.get("detected_items", [])),
+                "anonymization_applied": True,
+            },
+            timestamp=memory.timestamp,
+        )
+
+        # Store in vector store
+        await self.vector_store.add_memory(user_id, anonymized_memory)
+
+        results["processed"].append(
+            {
+                "memory_id": memory.id,
+                "action": "anonymized_and_stored",
+                "original_content": memory.content,
+                "anonymized_content": anonymized_content,
+                "pii_items_anonymized": len(pii_results.get("detected_items", [])),
+            }
+        )
 
     async def anonymize_memories(
         self, user_id: str, memory_ids: List[str], pii_types: List[str]

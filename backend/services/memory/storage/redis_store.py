@@ -73,9 +73,23 @@ class RedisStore:
         base_key = f"user:{user_id}:memories"
         return f"{base_key}:{suffix}" if suffix else base_key
 
+    def _get_conversation_key(self, conversation_id: str, suffix: str = "") -> str:
+        """
+        Generate conversation-specific Redis key for short-term memory.
+
+        Args:
+            conversation_id: Conversation ID
+            suffix: Optional key suffix
+
+        Returns:
+            Namespaced Redis key for conversation memory
+        """
+        base_key = f"conversation:{conversation_id}:memories"
+        return f"{base_key}:{suffix}" if suffix else base_key
+
     async def store_memory(self, user_id: str, memory: MemoryItem) -> bool:
         """
-        Store a memory in Redis with user isolation.
+        Store a memory in Redis with conversation isolation.
 
         Args:
             user_id: Validated user ID from JWT
@@ -91,8 +105,22 @@ class RedisStore:
                 logger.warning("Redis not available for memory storage")
                 return False
 
-            # Create memory key and data
-            memory_key = self._get_user_key(user_id, f"memory:{memory.id}")
+            # Extract conversation_id from metadata
+            conversation_id = memory.metadata.get("conversation_id")
+
+            if conversation_id:
+                # Use conversation-scoped storage for chat memories
+                memory_key = self._get_conversation_key(
+                    conversation_id, f"memory:{memory.id}"
+                )
+                list_key = self._get_conversation_key(conversation_id, "list")
+                ttl_hours = 4  # Shorter TTL for conversation memory
+            else:
+                # Fallback to user-scoped for non-chat memories
+                memory_key = self._get_user_key(user_id, f"memory:{memory.id}")
+                list_key = self._get_user_key(user_id, "list")
+                ttl_hours = 24
+
             memory_data = {
                 "id": memory.id,
                 "content": memory.content,
@@ -100,39 +128,41 @@ class RedisStore:
                 "timestamp": memory.timestamp.isoformat(),
                 "metadata": memory.metadata,
                 "user_id": user_id,  # Ensure user ownership
+                "conversation_id": conversation_id,  # Track conversation
             }
 
             # Store individual memory
             await self.client.setex(
                 memory_key,
-                timedelta(hours=24),  # 24-hour TTL for short-term storage
+                timedelta(hours=ttl_hours),
                 json.dumps(memory_data),
             )
 
-            # Add to user's memory list
-            user_list_key = self._get_user_key(user_id, "list")
-            await self.client.lpush(user_list_key, memory.id)
-            await self.client.expire(user_list_key, timedelta(hours=24))
+            # Add to conversation's memory list
+            await self.client.lpush(list_key, memory.id)
+            await self.client.expire(list_key, timedelta(hours=ttl_hours))
 
-            logger.debug(f"Stored memory {memory.id} for user {user_id}")
+            logger.debug(
+                f"Stored memory {memory.id} for {'conversation ' + conversation_id if conversation_id else 'user ' + user_id}"
+            )
             return True
 
         except Exception as e:
             logger.error(f"Failed to store memory for user {user_id}: {e}")
             return False
 
-    async def get_user_memories(
-        self, user_id: str, limit: int = 50
+    async def get_conversation_memories(
+        self, conversation_id: str, limit: int = 50
     ) -> List[MemoryItem]:
         """
-        Get recent memories for a specific user.
+        Get recent memories for a specific conversation.
 
         Args:
-            user_id: Validated user ID from JWT
+            conversation_id: Conversation ID
             limit: Maximum number of memories to retrieve
 
         Returns:
-            List of user's memories
+            List of conversation's memories
         """
         try:
             await self._ensure_initialized()
@@ -141,7 +171,66 @@ class RedisStore:
                 logger.warning("Redis not available for memory retrieval")
                 return []
 
-            # Get user's memory IDs
+            # Get conversation's memory IDs
+            list_key = self._get_conversation_key(conversation_id, "list")
+            memory_ids = await self.client.lrange(list_key, 0, limit - 1)
+
+            memories = []
+            for memory_id in memory_ids:
+                memory_id = (
+                    memory_id.decode() if isinstance(memory_id, bytes) else memory_id
+                )
+                memory_key = self._get_conversation_key(
+                    conversation_id, f"memory:{memory_id}"
+                )
+
+                memory_data = await self.client.get(memory_key)
+                if memory_data:
+                    try:
+                        data = json.loads(memory_data)
+                        memory = MemoryItem(
+                            id=data["id"],
+                            content=data["content"],
+                            type=data["type"],
+                            timestamp=datetime.fromisoformat(data["timestamp"]),
+                            metadata=data.get("metadata", {}),
+                        )
+                        memories.append(memory)
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Invalid memory data for {memory_id}: {e}")
+
+            logger.debug(
+                f"Retrieved {len(memories)} memories for conversation {conversation_id}"
+            )
+            return memories
+
+        except Exception as e:
+            logger.error(
+                f"Failed to get memories for conversation {conversation_id}: {e}"
+            )
+            return []
+
+    async def get_user_memories(
+        self, user_id: str, limit: int = 50
+    ) -> List[MemoryItem]:
+        """
+        Get recent memories for a specific user (legacy method, now returns empty for chat memories).
+
+        Args:
+            user_id: Validated user ID from JWT
+            limit: Maximum number of memories to retrieve
+
+        Returns:
+            List of user's non-conversation memories
+        """
+        try:
+            await self._ensure_initialized()
+
+            if not self.redis_available or not self.client:
+                logger.warning("Redis not available for memory retrieval")
+                return []
+
+            # Get user's memory IDs (non-conversation memories only)
             user_list_key = self._get_user_key(user_id, "list")
             memory_ids = await self.client.lrange(user_list_key, 0, limit - 1)
 
@@ -169,7 +258,7 @@ class RedisStore:
                     except (json.JSONDecodeError, KeyError) as e:
                         logger.warning(f"Invalid memory data for {memory_id}: {e}")
 
-            logger.debug(f"Retrieved {len(memories)} memories for user {user_id}")
+            logger.debug(f"Retrieved {len(memories)} user memories for user {user_id}")
             return memories
 
         except Exception as e:
@@ -241,6 +330,116 @@ class RedisStore:
         except Exception as e:
             logger.error(f"Failed to delete memory {memory_id} for user {user_id}: {e}")
             return False
+
+    async def clear_conversation_memories(self, conversation_id: str) -> bool:
+        """
+        Clear all memories for a specific conversation.
+
+        Args:
+            conversation_id: Conversation ID
+
+        Returns:
+            Success status
+        """
+        try:
+            if not self.redis_available or not self.client:
+                return False
+
+            # Get all conversation memory IDs
+            list_key = self._get_conversation_key(conversation_id, "list")
+            memory_ids = await self.client.lrange(list_key, 0, -1)
+
+            # Delete individual memories
+            deleted_count = 0
+            for memory_id in memory_ids:
+                memory_id = (
+                    memory_id.decode() if isinstance(memory_id, bytes) else memory_id
+                )
+                memory_key = self._get_conversation_key(
+                    conversation_id, f"memory:{memory_id}"
+                )
+                if await self.client.delete(memory_key):
+                    deleted_count += 1
+
+            # Delete the list
+            await self.client.delete(list_key)
+
+            logger.info(
+                f"Cleared {deleted_count} memories for conversation {conversation_id}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to clear memories for conversation {conversation_id}: {e}"
+            )
+            return False
+
+    async def end_conversation_session(
+        self, conversation_id: str, user_id: str, promote_important: bool = True
+    ) -> Dict[str, Any]:
+        """
+        End a conversation session, optionally promoting important memories to long-term storage.
+
+        Args:
+            conversation_id: Conversation ID
+            user_id: User ID (for security)
+            promote_important: Whether to identify and return important memories for promotion
+
+        Returns:
+            Dictionary with session end results and memories to promote
+        """
+        try:
+            result = {
+                "conversation_id": conversation_id,
+                "memories_cleared": 0,
+                "memories_to_promote": [],
+                "session_ended": False,
+            }
+
+            if not self.redis_available or not self.client:
+                return result
+
+            # Get conversation memories before clearing
+            memories = await self.get_conversation_memories(conversation_id)
+            result["memories_cleared"] = len(memories)
+
+            # Identify important memories for promotion if requested
+            if promote_important and memories:
+                important_memories = []
+                for memory in memories:
+                    # Check if memory should be promoted based on metadata
+                    metadata = memory.metadata or {}
+                    should_promote = (
+                        metadata.get("should_store_long_term", False)
+                        or metadata.get("emotional_resonance")
+                        in ["profound", "meaningful"]
+                        or metadata.get("significance_level") in ["critical", "high"]
+                        or metadata.get("memory_nature") == "emotional_anchor"
+                    )
+
+                    if should_promote:
+                        important_memories.append(
+                            {
+                                "memory": memory,
+                                "reason": "identified_as_important_during_conversation",
+                            }
+                        )
+
+                result["memories_to_promote"] = important_memories
+
+            # Clear conversation memories
+            cleared = await self.clear_conversation_memories(conversation_id)
+            result["session_ended"] = cleared
+
+            logger.info(
+                f"Ended conversation session {conversation_id}: cleared {result['memories_cleared']} memories, {len(result['memories_to_promote'])} marked for promotion"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to end conversation session {conversation_id}: {e}")
+            return {"error": str(e), "session_ended": False}
 
     async def clear_user_memories(self, user_id: str) -> bool:
         """
