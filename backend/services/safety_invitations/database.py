@@ -6,7 +6,9 @@ Database session management for Safety Network Invitations Service.
 from utils.database import get_db, get_database_manager
 
 # Create service-specific database manager (but will use same DB as safety_network)
-_manager = get_database_manager("safety_invitations")
+_manager = get_database_manager(
+    "safety_network"
+)  # Use safety_network's database manager
 
 
 # Export the get_db function for compatibility

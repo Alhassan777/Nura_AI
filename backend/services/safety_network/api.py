@@ -37,6 +37,15 @@ class CrisisLogRequest(BaseModel):
     next_steps: Optional[str] = None
 
 
+class AddContactRequest(BaseModel):
+    contact_id: str
+    relationship_type: str
+
+
+class UpdateEmergencyContactRequest(BaseModel):
+    is_emergency_contact: bool
+
+
 # 🔐 SECURE SAFETY ENDPOINTS - JWT Authentication Required
 
 
@@ -73,6 +82,120 @@ async def get_user_safety_contacts(
         logger.error(f"Error getting safety contacts for user {user_id}: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve contacts: {str(e)}"
+        )
+
+
+@router.post("/contacts")
+async def add_safety_contact(
+    request: AddContactRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Add a contact to user's safety network.
+    """
+    try:
+        # Get next priority order
+        existing_contacts = SafetyNetworkManager.get_user_safety_contacts(
+            user_id=user_id, active_only=True
+        )
+        priority_order = len(existing_contacts) + 1
+
+        contact_id = SafetyNetworkManager.add_safety_contact(
+            user_id=user_id,
+            contact_user_id=request.contact_id,
+            priority_order=priority_order,
+            relationship_type=request.relationship_type,
+            allowed_communication_methods=["phone", "email", "sms"],
+            preferred_communication_method="phone",
+            is_emergency_contact=False,
+        )
+
+        if not contact_id:
+            raise HTTPException(status_code=400, detail="Failed to add safety contact")
+
+        logger.info(f"Added safety contact {contact_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "contact_id": contact_id,
+            "message": "Contact added successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding safety contact for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add contact: {str(e)}")
+
+
+@router.delete("/contacts/{contact_id}")
+async def remove_safety_contact(
+    contact_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Remove a contact from user's safety network.
+    """
+    try:
+        success = SafetyNetworkManager.remove_safety_contact(
+            contact_id=contact_id, user_id=user_id
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=404, detail="Contact not found or already removed"
+            )
+
+        logger.info(f"Removed safety contact {contact_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "message": "Contact removed successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing safety contact for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to remove contact: {str(e)}"
+        )
+
+
+@router.put("/contacts/{contact_id}")
+async def update_emergency_contact_status(
+    contact_id: str,
+    request: UpdateEmergencyContactRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Update emergency contact status for a safety contact.
+    """
+    try:
+        success = SafetyNetworkManager.update_safety_contact(
+            contact_id=contact_id,
+            user_id=user_id,
+            is_emergency_contact=request.is_emergency_contact,
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        logger.info(
+            f"Updated emergency status for contact {contact_id} (user {user_id}): {request.is_emergency_contact}"
+        )
+
+        return {
+            "success": True,
+            "message": "Emergency contact status updated successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating emergency contact status: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update contact: {str(e)}"
         )
 
 

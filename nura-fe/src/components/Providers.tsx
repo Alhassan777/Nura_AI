@@ -7,6 +7,7 @@ import { ConfigProvider, theme, App, unstableSetRender } from "antd";
 import { useEffect } from "react";
 import axios from "axios";
 import ReactQueryProvider from "./providers/react-query-provider";
+import { InvitationNotificationProvider } from "@/contexts/InvitationNotificationContext";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   unstableSetRender((node, container: any) => {
@@ -39,7 +40,11 @@ export default function Providers({ children }: { children: React.ReactNode }) {
             },
           }}
         >
-          <App>{children}</App>
+          <App>
+            <InvitationNotificationProvider>
+              {children}
+            </InvitationNotificationProvider>
+          </App>
         </ConfigProvider>
       </AntdRegistry>
     </ReactQueryProvider>

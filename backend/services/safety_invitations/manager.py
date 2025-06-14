@@ -24,8 +24,7 @@ from models import (
     SafetyPermissionChange,
 )
 
-# Add safety network service path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "safety_network"))
+# Import safety network manager
 from services.safety_network.manager import SafetyNetworkManager
 
 logger = logging.getLogger(__name__)
@@ -157,11 +156,19 @@ class SafetyInvitationManager:
                     db, requester_id
                 )
 
+                logger.info(
+                    f"Checking existing relationships for user {requester_id}: {existing_relationships}"
+                )
+
                 if recipient.id in existing_relationships:
+                    relationship_type = existing_relationships[recipient.id]
+                    logger.warning(
+                        f"Cannot send invitation from {requester_id} to {recipient.id}: existing {relationship_type}"
+                    )
                     return {
                         "success": False,
                         "error": "RELATIONSHIP_EXISTS",
-                        "message": f"You already have a {existing_relationships[recipient.id]} with this user",
+                        "message": f"You already have a {relationship_type} with this user",
                     }
 
                 # 4. Get recipient's default permissions for conflict detection
@@ -347,19 +354,26 @@ class SafetyInvitationManager:
                     granted_permissions or invitation.requested_permissions
                 )
 
-                # 3. Create safety contact for requester
+                # 3. Get next priority order for the new contact
                 priority_order = SafetyInvitationManager._get_next_priority_order(
                     invitation.requester_id, db
                 )
 
-                safety_contact = SafetyContact(
+                # 4. Create safety contact using SafetyNetworkManager
+                logger.info(
+                    f"Creating safety contact for invitation {invitation_id}: requester={invitation.requester_id}, contact={user_id}, relationship={invitation.relationship_type}"
+                )
+
+                safety_contact = SafetyNetworkManager.add_safety_contact(
                     user_id=invitation.requester_id,  # Requester gets the contact
                     contact_user_id=user_id,  # User being contacted
                     priority_order=priority_order,
                     relationship_type=invitation.relationship_type,
-                    notes=f"Added via safety network invitation on {datetime.utcnow().strftime('%Y-%m-%d')}",
                     allowed_communication_methods=["phone", "email", "sms"],
                     preferred_communication_method="phone",
+                    is_emergency_contact=final_permissions.get(
+                        "emergency_contact", False
+                    ),
                     custom_metadata={
                         "permissions": final_permissions,
                         "invitation_id": invitation_id,
@@ -367,9 +381,19 @@ class SafetyInvitationManager:
                     },
                 )
 
-                db.add(safety_contact)
+                logger.info(f"Safety contact creation result: {safety_contact}")
 
-                # 4. Create response record
+                if not safety_contact:
+                    logger.error(
+                        f"SafetyNetworkManager.add_safety_contact returned None for invitation {invitation_id}"
+                    )
+                    return {
+                        "success": False,
+                        "error": "CONTACT_CREATION_FAILED",
+                        "message": "Failed to create safety contact",
+                    }
+
+                # 5. Create response record
                 response = SafetyNetworkResponse(
                     request_id=invitation_id,
                     response_type="accept",
@@ -379,7 +403,7 @@ class SafetyInvitationManager:
 
                 db.add(response)
 
-                # 5. Update invitation status
+                # 6. Update invitation status
                 invitation.status = SafetyNetworkRequestStatus.ACCEPTED.value
                 invitation.updated_at = datetime.utcnow()
 
@@ -387,7 +411,7 @@ class SafetyInvitationManager:
 
                 return {
                     "success": True,
-                    "safety_contact_id": safety_contact.id,
+                    "safety_contact_id": safety_contact,
                     "granted_permissions": final_permissions,
                     "status": "accepted",
                     "auto_accepted": auto_accepted,
@@ -527,6 +551,7 @@ class SafetyInvitationManager:
                         "other_user": (
                             {
                                 "id": str(other_user.id),
+                                "email": other_user.email,
                                 "full_name": other_user.full_name,
                                 "display_name": other_user.display_name,
                                 "avatar_url": other_user.avatar_url,

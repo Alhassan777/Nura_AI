@@ -11,11 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from .database import get_db
-from models import SafetyContact, ContactLog, CommunicationMethod
-
-# Add user service path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "user"))
-from services.user.manager import UserManager
+from models import SafetyContact, ContactLog, CommunicationMethod, User
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +64,9 @@ class SafetyNetworkManager:
                 # Validate that we have either contact_user_id OR external contact info
                 if contact_user_id:
                     # Verify the contact user exists in central database
-                    contact_user = UserManager.get_user_by_id(contact_user_id)
+                    contact_user = (
+                        db.query(User).filter(User.id == contact_user_id).first()
+                    )
                     if not contact_user:
                         logger.error(
                             f"Contact user {contact_user_id} not found in central database"
@@ -109,7 +107,7 @@ class SafetyNetworkManager:
                 )
 
                 db.add(contact)
-                db.flush()  # Get the ID
+                db.commit()  # Commit the transaction to save the contact
 
                 logger.info(f"Added safety contact {contact.id} for user {user_id}")
                 return contact.id
@@ -151,7 +149,7 @@ class SafetyNetworkManager:
                 enriched_contacts = []
                 for contact in contacts:
                     enriched_contact = SafetyNetworkManager._enrich_contact_data(
-                        contact
+                        contact, db
                     )
                     enriched_contacts.append(enriched_contact)
 
@@ -162,7 +160,7 @@ class SafetyNetworkManager:
             return []
 
     @staticmethod
-    def _enrich_contact_data(contact: SafetyContact) -> Dict[str, Any]:
+    def _enrich_contact_data(contact: SafetyContact, db) -> Dict[str, Any]:
         """
         Enrich safety contact with user data from central database.
         """
@@ -189,21 +187,36 @@ class SafetyNetworkManager:
         # Get contact details
         if contact.contact_user_id:
             # Contact is a user in our system - get data from central user DB
-            contact_user = UserManager.get_user_by_id(contact.contact_user_id)
-            if contact_user:
-                contact_data.update(
-                    {
-                        "first_name": contact_user.first_name,
-                        "last_name": contact_user.last_name,
-                        "phone_number": contact_user.phone_number,
-                        "email": contact_user.email,
-                        "full_name": contact_user.full_name,
-                    }
+            try:
+                contact_user = (
+                    db.query(User).filter(User.id == contact.contact_user_id).first()
                 )
-            else:
-                logger.warning(
-                    f"Contact user {contact.contact_user_id} not found in central database"
-                )
+                if contact_user:
+                    # Extract all data immediately while in session
+                    contact_data.update(
+                        {
+                            "first_name": contact_user.first_name,
+                            "last_name": contact_user.last_name,
+                            "phone_number": contact_user.phone_number,
+                            "email": contact_user.email,
+                            "full_name": contact_user.full_name,
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"Contact user {contact.contact_user_id} not found in central database"
+                    )
+                    contact_data.update(
+                        {
+                            "first_name": f"User {contact.contact_user_id}",
+                            "last_name": "",
+                            "phone_number": None,
+                            "email": None,
+                            "full_name": f"User {contact.contact_user_id}",
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Error fetching contact user data: {e}")
                 contact_data.update(
                     {
                         "first_name": f"User {contact.contact_user_id}",

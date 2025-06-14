@@ -316,12 +316,15 @@ class UserSearch:
         """
         Get existing relationships for a user (pending invitations, existing contacts).
 
+        Note: This only blocks outgoing requests and existing contacts.
+        Incoming requests do NOT block sending invitations (allows bidirectional invitations).
+
         Returns:
             Dict mapping user_id to relationship status
         """
         relationships = {}
 
-        # Check pending outgoing requests
+        # Check pending outgoing requests (blocks sending another invitation)
         outgoing_requests = (
             db.query(SafetyNetworkRequest)
             .filter(
@@ -338,20 +341,8 @@ class UserSearch:
                 "pending_request" if request.status == "pending" else "existing_contact"
             )
 
-        # Check pending incoming requests
-        incoming_requests = (
-            db.query(SafetyNetworkRequest)
-            .filter(
-                and_(
-                    SafetyNetworkRequest.requested_id == user_id,
-                    SafetyNetworkRequest.status == "pending",
-                )
-            )
-            .all()
-        )
-
-        for request in incoming_requests:
-            relationships[request.requester_id] = "incoming_request"
+        # NOTE: We do NOT include incoming requests here to allow bidirectional invitations
+        # If Alice sends invitation to Bob, Bob can still send invitation to Alice
 
         # Check existing safety contacts (external or user-based)
         existing_contacts = (

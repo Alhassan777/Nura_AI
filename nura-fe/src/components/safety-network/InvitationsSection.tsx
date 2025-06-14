@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button, Empty, Spin, Tag, Avatar, Divider } from "antd";
+import { Button, Empty, Spin, Tag, Avatar, Divider, App } from "antd";
 import {
   UserAddOutlined,
   CheckOutlined,
@@ -14,15 +14,27 @@ import {
   useAcceptInvitation,
   useRejectInvitation,
 } from "@/services/hooks/use-safety-invitations";
+import { useInvitationNotifications } from "@/contexts/InvitationNotificationContext";
 
 interface Invitation {
   id: string;
-  sender_id: string;
-  recipient_email: string;
+  status: "pending" | "accepted" | "declined";
   relationship_type: string;
   invitation_message?: string;
-  status: "pending" | "accepted" | "rejected";
+  requested_permissions: object;
   created_at: string;
+  expires_at?: string;
+  other_user?: {
+    id: string;
+    full_name?: string;
+    display_name?: string;
+    avatar_url?: string;
+    verification_status: string;
+    email?: string;
+  };
+  // For backward compatibility
+  sender_id?: string;
+  recipient_email?: string;
   sender_profile?: {
     email: string;
     full_name?: string;
@@ -33,21 +45,44 @@ export const InvitationsSection = () => {
   const { data: invitations, isLoading } = usePendingInvitations();
   const acceptInvitationMutation = useAcceptInvitation();
   const rejectInvitationMutation = useRejectInvitation();
+  const { checkForNewInvitations } = useInvitationNotifications();
+  const { message } = App.useApp();
 
   const handleAcceptInvitation = (invitationId: string) => {
-    acceptInvitationMutation.mutate({
-      invitationId,
-      data: {
-        granted_permissions: {
-          can_view_mood: true,
-          can_receive_alerts: true,
+    acceptInvitationMutation.mutate(
+      {
+        invitationId,
+        data: {
+          granted_permissions: {
+            can_view_mood: true,
+            can_receive_alerts: true,
+          },
         },
       },
-    });
+      {
+        onSuccess: () => {
+          message.success("Invitation accepted successfully! 🎉");
+          checkForNewInvitations(); // Refresh the invitation count
+        },
+        onError: (error: any) => {
+          message.error("Failed to accept invitation. Please try again.");
+          console.error("Error accepting invitation:", error);
+        },
+      }
+    );
   };
 
   const handleRejectInvitation = (invitationId: string) => {
-    rejectInvitationMutation.mutate(invitationId);
+    rejectInvitationMutation.mutate(invitationId, {
+      onSuccess: () => {
+        message.info("Invitation declined.");
+        checkForNewInvitations(); // Refresh the invitation count
+      },
+      onError: (error: any) => {
+        message.error("Failed to decline invitation. Please try again.");
+        console.error("Error rejecting invitation:", error);
+      },
+    });
   };
 
   if (isLoading) {
@@ -92,40 +127,52 @@ export const InvitationsSection = () => {
               {invitations.received.map((invitation) => (
                 <div
                   key={invitation.id}
-                  className="p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   <div className="flex items-start justify-between">
-                    <div className="flex items-start space-x-4">
+                    <div className="flex items-start space-x-4 flex-1">
                       <Avatar
-                        size={48}
+                        size={56}
                         icon={<UserOutlined />}
-                        className="bg-blue-500"
+                        className="bg-gradient-to-br from-green-500 to-green-600 text-white border-2 border-green-100 dark:border-green-800"
                       />
-                      <div>
-                        <h4 className="font-semibold text-gray-900 dark:text-white">
-                          {invitation.sender_profile?.full_name ||
+                      <div className="flex-1">
+                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                          {invitation.other_user?.full_name ||
+                            invitation.other_user?.display_name ||
+                            invitation.sender_profile?.full_name ||
                             invitation.sender_profile?.email ||
                             "Unknown User"}
                         </h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">
-                          {invitation.sender_profile?.email}
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                          {invitation.other_user?.email ||
+                            invitation.sender_profile?.email ||
+                            "No email available"}
                         </p>
-                        <Tag color="blue" className="mt-1">
-                          {invitation.relationship_type}
-                        </Tag>
+                        <div className="flex items-center space-x-2 mb-3">
+                          <Tag
+                            color="blue"
+                            className="text-xs font-medium px-3 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0"
+                          >
+                            {invitation.relationship_type}
+                          </Tag>
+                        </div>
                         {invitation.invitation_message && (
-                          <p className="text-sm text-gray-700 dark:text-gray-200 mt-2 p-2 bg-gray-100 dark:bg-gray-700 rounded">
-                            "{invitation.invitation_message}"
-                          </p>
+                          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border-l-4 border-blue-500">
+                            <p className="text-sm text-gray-700 dark:text-gray-200 italic">
+                              "{invitation.invitation_message}"
+                            </p>
+                          </div>
                         )}
                       </div>
                     </div>
 
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 ml-4">
                       <Button
                         type="primary"
                         icon={<CheckOutlined />}
                         onClick={() => handleAcceptInvitation(invitation.id)}
+                        className="bg-green-600 hover:bg-green-700 border-green-600 hover:border-green-700 text-white font-medium px-4 py-2 rounded-lg"
                         // loading={acceptInvitationMutation.isPending}
                       >
                         Accept
@@ -134,6 +181,7 @@ export const InvitationsSection = () => {
                         danger
                         icon={<CloseOutlined />}
                         onClick={() => handleRejectInvitation(invitation.id)}
+                        className="bg-red-600 hover:bg-red-700 border-red-600 hover:border-red-700 text-white font-medium px-4 py-2 rounded-lg"
                         // loading={rejectInvitationMutation.isPending}
                       >
                         Decline
@@ -165,22 +213,41 @@ export const InvitationsSection = () => {
               {invitations.sent.map((invitation) => (
                 <div
                   key={invitation.id}
-                  className="p-4 border rounded-lg bg-gray-50 dark:bg-gray-800"
+                  className="p-6 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white">
-                        {invitation.recipient_email}
-                      </h4>
-                      <div className="flex items-center space-x-2 mt-1">
-                        <Tag color="blue">{invitation.relationship_type}</Tag>
-                        <Tag color="orange">Pending Response</Tag>
+                    <div className="flex items-center space-x-4">
+                      <Avatar
+                        size={48}
+                        icon={<UserOutlined />}
+                        className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-2 border-orange-100 dark:border-orange-800"
+                      />
+                      <div>
+                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                          {invitation.recipient_email}
+                        </h4>
+                        <div className="flex items-center space-x-2 mb-2">
+                          <Tag
+                            color="blue"
+                            className="text-xs font-medium px-3 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0"
+                          >
+                            {invitation.relationship_type}
+                          </Tag>
+                          <Tag
+                            color="orange"
+                            className="text-xs font-medium px-3 py-1 rounded-full bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-0"
+                          >
+                            Pending Response
+                          </Tag>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="text-sm text-gray-500 dark:text-gray-400">
-                      Sent{" "}
-                      {new Date(invitation.created_at).toLocaleDateString()}
+                    <div className="text-sm text-gray-500 dark:text-gray-400 text-right">
+                      <div className="font-medium">Sent</div>
+                      <div>
+                        {new Date(invitation.created_at).toLocaleDateString()}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -45,9 +45,18 @@ export const AddContactModal = ({ isOpen, onClose }: AddContactModalProps) => {
       message.success("Invitation sent successfully!");
       form.resetFields();
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending invitation:", error);
-      message.error("Failed to send invitation");
+
+      // Extract error message from response
+      let errorMessage = "Failed to send invitation";
+      if (error?.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      message.error(errorMessage);
     } finally {
       setIsLoading(false);
     }

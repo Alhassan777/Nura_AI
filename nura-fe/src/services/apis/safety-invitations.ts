@@ -36,6 +36,7 @@ export interface SendInvitationPayload {
 
 export interface AcceptInvitationPayload {
   granted_permissions: object;
+  response_message?: string;
 }
 
 // Safety Invitations API functions
@@ -53,18 +54,25 @@ export const safetyInvitationsApi = {
       .then((res) => res.data),
 
   // Get pending invitations (sent and received)
-  getPendingInvitations: () =>
-    axiosInstance.get("/safety-invitations/pending").then((res) => res.data),
+  getPendingInvitations: (
+    direction: "incoming" | "outgoing" = "incoming",
+    status: "pending" | "accepted" | "declined" | "all" = "pending"
+  ) =>
+    axiosInstance
+      .get(
+        `/safety-invitations/invitations?direction=${direction}&status=${status}`
+      )
+      .then((res) => res.data),
 
   // Accept invitation
   acceptInvitation: (invitationId: string, data: AcceptInvitationPayload) =>
     axiosInstance
-      .post(`/safety-invitations/${invitationId}/accept`, data)
+      .post(`/safety-invitations/invitations/${invitationId}/accept`, data)
       .then((res) => res.data),
 
   // Reject invitation
   rejectInvitation: (invitationId: string) =>
     axiosInstance
-      .post(`/safety-invitations/${invitationId}/reject`)
+      .post(`/safety-invitations/invitations/${invitationId}/decline`)
       .then((res) => res.data),
 };

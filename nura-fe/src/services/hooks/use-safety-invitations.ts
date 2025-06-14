@@ -16,10 +16,26 @@ export const useSearchUsers = () => {
 
 // Get pending invitations
 export const usePendingInvitations = () => {
-  return useQuery({
-    queryKey: ["pending-invitations"],
-    queryFn: safetyInvitationsApi.getPendingInvitations,
+  const incomingQuery = useQuery({
+    queryKey: ["pending-invitations", "incoming"],
+    queryFn: () =>
+      safetyInvitationsApi.getPendingInvitations("incoming", "pending"),
   });
+
+  const outgoingQuery = useQuery({
+    queryKey: ["pending-invitations", "outgoing"],
+    queryFn: () =>
+      safetyInvitationsApi.getPendingInvitations("outgoing", "pending"),
+  });
+
+  return {
+    data: {
+      received: incomingQuery.data?.invitations || [],
+      sent: outgoingQuery.data?.invitations || [],
+    },
+    isLoading: incomingQuery.isLoading || outgoingQuery.isLoading,
+    error: incomingQuery.error || outgoingQuery.error,
+  };
 };
 
 // Send invitation

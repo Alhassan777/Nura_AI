@@ -58,7 +58,6 @@ class InvitationRequest(BaseModel):
 
 
 class InvitationResponse(BaseModel):
-    invitation_id: str = Field(..., description="Invitation ID")
     granted_permissions: Optional[Dict[str, Any]] = Field(
         None, description="Permissions being granted"
     )
