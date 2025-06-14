@@ -171,6 +171,9 @@ async def send_invitation(
 ):
     """
     Send a safety network invitation to another user.
+
+    New approach: User has full control over what permissions to request.
+    No auto-restrictions based on relationship type.
     """
     try:
         result = SafetyInvitationManager.send_invitation(
@@ -192,6 +195,8 @@ async def send_invitation(
                 raise HTTPException(status_code=403, detail=result["message"])
             elif result["error"] == "RELATIONSHIP_EXISTS":
                 raise HTTPException(status_code=409, detail=result["message"])
+            elif result["error"] == "INVALID_PERMISSIONS":
+                raise HTTPException(status_code=400, detail=result["message"])
             else:
                 raise HTTPException(status_code=400, detail=result["message"])
 
@@ -251,6 +256,8 @@ async def accept_invitation(
 ):
     """
     Accept a safety network invitation.
+
+    User can modify the permissions when accepting - they have full control.
     """
     try:
         result = SafetyInvitationManager.accept_invitation(
@@ -263,6 +270,8 @@ async def accept_invitation(
         if not result["success"]:
             if result["error"] == "INVITATION_NOT_FOUND":
                 raise HTTPException(status_code=404, detail=result["message"])
+            elif result["error"] == "INVALID_PERMISSIONS":
+                raise HTTPException(status_code=400, detail=result["message"])
             else:
                 raise HTTPException(status_code=400, detail=result["message"])
 
@@ -458,61 +467,6 @@ async def update_privacy_settings(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/privacy/defaults/{relationship_type}")
-async def get_default_permissions(
-    relationship_type: str,
-):
-    """
-    Get default permission template for a relationship type.
-    """
-    try:
-        valid_types = [
-            "family",
-            "friend",
-            "partner",
-            "therapist",
-            "counselor",
-            "colleague",
-            "neighbor",
-            "other",
-        ]
-        if relationship_type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid relationship type. Must be one of: {valid_types}",
-            )
-
-        # Map relationship types to permission templates
-        template_mapping = {
-            "family": "family_member",
-            "partner": "family_member",
-            "therapist": "wellness_support",
-            "counselor": "wellness_support",
-            "friend": "basic_support",
-            "colleague": "basic_support",
-            "neighbor": "emergency_only",
-            "other": "basic_support",
-        }
-
-        template_name = template_mapping.get(relationship_type, "basic_support")
-        permissions = SafetyInvitationManager.get_default_permissions_for_relationship(
-            template_name
-        )
-
-        return {
-            "success": True,
-            "relationship_type": relationship_type,
-            "template_name": template_name,
-            "default_permissions": permissions,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting default permissions: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
 # =============================================================================
 # PERMISSION MANAGEMENT
 # =============================================================================
@@ -554,132 +508,97 @@ async def update_contact_permissions(
 # =============================================================================
 
 
+@router.get("/permissions/available")
+async def get_available_permissions():
+    """
+    Get all available permissions that users can choose from.
+    Used for building the permission selection UI.
+    """
+    try:
+        permissions_data = SafetyInvitationManager.get_available_permissions()
+        return {
+            "success": True,
+            "permissions": permissions_data["permissions"],
+            "categories": permissions_data["categories"],
+        }
+    except Exception as e:
+        logger.error(f"Error getting available permissions: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to get available permissions"
+        )
+
+
 @router.get("/relationship-types")
 async def get_relationship_types():
     """
-    Get available relationship types and their descriptions.
+    Get available relationship types with suggested permissions.
+    Suggestions are just hints - user has full control.
     """
     try:
-        relationship_types = [
-            {
-                "value": "family",
-                "label": "Family Member",
-                "description": "Parent, sibling, child, or other family",
-            },
-            {
-                "value": "friend",
-                "label": "Friend",
-                "description": "Close personal friend",
-            },
-            {
-                "value": "partner",
-                "label": "Partner/Spouse",
-                "description": "Romantic partner or spouse",
-            },
-            {
-                "value": "therapist",
-                "label": "Therapist",
-                "description": "Licensed therapist or counselor",
-            },
-            {
-                "value": "counselor",
-                "label": "Counselor",
-                "description": "Guidance counselor or mental health professional",
-            },
-            {
-                "value": "colleague",
-                "label": "Colleague",
-                "description": "Work colleague or professional contact",
-            },
-            {
-                "value": "neighbor",
-                "label": "Neighbor",
-                "description": "Neighbor or nearby contact",
-            },
-            {
-                "value": "other",
-                "label": "Other",
-                "description": "Other type of relationship",
-            },
-        ]
-
-        return {
-            "success": True,
-            "relationship_types": relationship_types,
-        }
-
+        relationship_types = SafetyInvitationManager.get_relationship_types()
+        return {"success": True, "relationship_types": relationship_types}
     except Exception as e:
         logger.error(f"Error getting relationship types: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Failed to get relationship types")
 
 
-@router.get("/permission-templates")
-async def get_permission_templates():
-    """
-    Get available permission templates with descriptions.
-    """
-    try:
-        templates = {
-            "emergency_only": {
-                "name": "Emergency Only",
-                "description": "Basic emergency contact with location access during crises",
-                "permissions": SafetyInvitationManager.DEFAULT_PERMISSIONS[
-                    "emergency_only"
-                ],
-            },
-            "wellness_support": {
-                "name": "Wellness Support",
-                "description": "Mental health support with mood tracking but no location access",
-                "permissions": SafetyInvitationManager.DEFAULT_PERMISSIONS[
-                    "wellness_support"
-                ],
-            },
-            "basic_support": {
-                "name": "Basic Support",
-                "description": "General support with mood and activity tracking",
-                "permissions": SafetyInvitationManager.DEFAULT_PERMISSIONS[
-                    "basic_support"
-                ],
-            },
-            "family_member": {
-                "name": "Family Member",
-                "description": "Comprehensive access for trusted family members",
-                "permissions": SafetyInvitationManager.DEFAULT_PERMISSIONS[
-                    "family_member"
-                ],
-            },
-        }
-
-        return {
-            "success": True,
-            "templates": templates,
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting permission templates: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get("/user/defaults/{relationship_type}")
-async def get_user_relationship_defaults(
-    relationship_type: str,
+@router.get("/invitations/{invitation_id}/preview")
+async def get_invitation_preview(
+    invitation_id: str,
     current_user: Dict[str, Any] = Depends(get_current_user_session),
 ):
     """
-    Get current user's default permissions for a specific relationship type.
+    Get a preview of an invitation with clear permission breakdown.
     """
     try:
-        defaults = UserSearch.get_user_defaults_for_relationship(
-            user_id=current_user["user_id"],
-            relationship_type=relationship_type,
-        )
+        with get_db() as db:
+            invitation = (
+                db.query(SafetyNetworkRequest)
+                .filter(
+                    and_(
+                        SafetyNetworkRequest.id == invitation_id,
+                        SafetyNetworkRequest.requested_id == current_user["user_id"],
+                        SafetyNetworkRequest.status == "pending",
+                    )
+                )
+                .first()
+            )
 
-        return {
-            "success": True,
-            "relationship_type": relationship_type,
-            "default_permissions": defaults,
-        }
+            if not invitation:
+                raise HTTPException(status_code=404, detail="Invitation not found")
 
+            # Get requester info
+            requester = (
+                db.query(User).filter(User.id == invitation.requester_id).first()
+            )
+
+            # Generate permission summary
+            permission_summary = SafetyInvitationManager._generate_permission_summary(
+                invitation.requested_permissions or {}
+            )
+
+            return {
+                "success": True,
+                "invitation": {
+                    "id": invitation.id,
+                    "requester": {
+                        "name": requester.full_name if requester else "Unknown",
+                        "email": requester.email if requester else None,
+                    },
+                    "relationship_type": invitation.relationship_type,
+                    "message": invitation.invitation_message,
+                    "requested_permissions": invitation.requested_permissions,
+                    "permission_summary": permission_summary,
+                    "expires_at": (
+                        invitation.expires_at.isoformat()
+                        if invitation.expires_at
+                        else None
+                    ),
+                },
+            }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error getting user relationship defaults: {e}")
+        logger.error(f"Error getting invitation preview: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

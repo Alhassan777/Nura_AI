@@ -1,8 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { addReflection, deleteReflection, getReflections, updateReflection } from "../apis/gamification";
+import {
+  addReflection,
+  deleteReflection,
+  getReflections,
+  updateReflection,
+} from "../apis/gamification";
 import { DefaultReflection } from "@/constants/default-reflection";
 import { useInvalidateQueries } from "../apis/invalidate-queries";
-
 
 export const useGetReflections = () => {
   return useQuery({
@@ -23,12 +27,16 @@ export const useAddReflection = () => {
 
 export const useDeleteReflection = () => {
   return useMutation({
-    mutationFn: (body: { reflectionId: string }) => deleteReflection(body.reflectionId),
+    mutationFn: (body: { reflectionId: string }) =>
+      deleteReflection(body.reflectionId),
   });
 };
 
 export const useUpdateReflection = () => {
   return useMutation({
-    mutationFn: (body: { reflectionId: string; reflection: Partial<DefaultReflection> }) => updateReflection(body.reflectionId, body.reflection),
+    mutationFn: (body: {
+      reflectionId: string;
+      reflection: Partial<DefaultReflection>;
+    }) => updateReflection(body.reflectionId, body.reflection),
   });
 };

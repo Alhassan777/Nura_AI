@@ -251,6 +251,81 @@ class SafetyNetworkManager:
         )
 
     @staticmethod
+    def get_helping_relationships(
+        contact_user_id: str,
+        active_only: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get relationships where the specified user is a safety contact for others.
+        This shows who the user is helping in their safety networks.
+
+        Args:
+            contact_user_id: User who is serving as a safety contact
+            active_only: Only return active relationships
+
+        Returns:
+            List of relationships with details about who they're helping
+        """
+        try:
+            with get_db() as db:
+                query = db.query(SafetyContact).filter(
+                    SafetyContact.contact_user_id == contact_user_id
+                )
+
+                if active_only:
+                    query = query.filter(SafetyContact.is_active == True)
+
+                # Order by most recent first
+                helping_contacts = query.order_by(SafetyContact.created_at.desc()).all()
+
+                # Enrich with owner data
+                helping_relationships = []
+                for contact in helping_contacts:
+                    # Get the person who owns this safety network (who we're helping)
+                    owner = db.query(User).filter(User.id == contact.user_id).first()
+
+                    if not owner:
+                        continue
+
+                    # Extract permissions from custom_metadata if available
+                    permissions = {}
+                    if (
+                        contact.custom_metadata
+                        and "permissions" in contact.custom_metadata
+                    ):
+                        permissions = contact.custom_metadata["permissions"]
+
+                    relationship_data = {
+                        "id": contact.id,
+                        "helping_user": {
+                            "id": str(owner.id),
+                            "full_name": owner.full_name,
+                            "display_name": owner.display_name,
+                            "email": owner.email,
+                            "avatar_url": owner.avatar_url,
+                        },
+                        "relationship_type": contact.relationship_type,
+                        "permissions_granted": permissions,
+                        "communication_methods": contact.allowed_communication_methods,
+                        "preferred_method": contact.preferred_communication_method,
+                        "is_emergency_contact": contact.is_emergency_contact,
+                        "priority_order": contact.priority_order,
+                        "notes": contact.notes,
+                        "created_at": contact.created_at,
+                        "last_contacted_at": contact.last_contacted_at,
+                        "last_contact_successful": contact.last_contact_successful,
+                        "preferred_contact_time": contact.preferred_contact_time,
+                        "timezone": contact.timezone,
+                    }
+                    helping_relationships.append(relationship_data)
+
+                return helping_relationships
+
+        except Exception as e:
+            logger.error(f"Error getting helping relationships: {e}")
+            return []
+
+    @staticmethod
     def update_safety_contact(contact_id: str, user_id: str, **updates) -> bool:
         """Update an existing safety contact."""
         try:

@@ -1,8 +1,8 @@
 """
 Safety Network Invitation Management System.
 
-Handles the complete lifecycle of safety network invitations including privacy controls,
-permission management, blocking system, and invitation lifecycle.
+Handles the complete lifecycle of safety network invitations with full user autonomy
+over permissions. No pre-assumptions based on relationship types.
 """
 
 import logging
@@ -31,71 +31,147 @@ logger = logging.getLogger(__name__)
 
 
 class SafetyInvitationManager:
-    """Manages safety network invitations with privacy controls and permission management."""
+    """Manages safety network invitations with full user control over permissions."""
 
-    # Default permission templates
-    DEFAULT_PERMISSIONS = {
-        "emergency_only": {
-            "can_see_status": True,
-            "can_see_location": True,
-            "emergency_contact": True,
-            "can_receive_alerts": True,
-            "can_see_mood": False,
-            "can_see_activities": False,
-            "can_see_goals": False,
-            "alert_preferences": {
-                "crisis_alerts": True,
-                "wellness_check_alerts": False,
-                "goal_reminders": False,
-                "mood_concerns": False,
-            },
+    # Available permission categories for users to choose from
+    AVAILABLE_PERMISSIONS = {
+        "location_access": {
+            "key": "can_see_location",
+            "name": "Location Access",
+            "description": "Can see your location during crisis situations for emergency response",
+            "privacy_level": "high",
+            "category": "emergency",
         },
-        "wellness_support": {
-            "can_see_status": True,
-            "can_see_location": False,
-            "emergency_contact": False,
-            "can_receive_alerts": True,
-            "can_see_mood": True,
-            "can_see_activities": False,
-            "can_see_goals": False,
-            "alert_preferences": {
-                "crisis_alerts": True,
-                "wellness_check_alerts": True,
-                "goal_reminders": False,
-                "mood_concerns": True,
-            },
+        "mood_tracking": {
+            "key": "can_see_mood",
+            "name": "Mood Tracking",
+            "description": "Can see your daily mood entries and emotional patterns",
+            "privacy_level": "medium",
+            "category": "wellness",
         },
-        "basic_support": {
-            "can_see_status": True,
-            "can_see_location": False,
-            "emergency_contact": False,
-            "can_receive_alerts": True,
-            "can_see_mood": True,
-            "can_see_activities": True,
-            "can_see_goals": False,
-            "alert_preferences": {
-                "crisis_alerts": False,
-                "wellness_check_alerts": True,
-                "goal_reminders": False,
-                "mood_concerns": True,
-            },
+        "activity_tracking": {
+            "key": "can_see_activities",
+            "name": "Activity Tracking",
+            "description": "Can see your daily activities and behavioral patterns",
+            "privacy_level": "medium",
+            "category": "wellness",
         },
-        "family_member": {
-            "can_see_status": True,
-            "can_see_location": True,
-            "emergency_contact": True,
-            "can_receive_alerts": True,
-            "can_see_mood": True,
-            "can_see_activities": True,
-            "can_see_goals": True,
-            "alert_preferences": {
-                "crisis_alerts": True,
-                "wellness_check_alerts": True,
-                "goal_reminders": True,
-                "mood_concerns": True,
-            },
+        "goals_progress": {
+            "key": "can_see_goals",
+            "name": "Goals & Progress",
+            "description": "Can see your mental health goals and progress tracking",
+            "privacy_level": "low",
+            "category": "wellness",
+        },
+        "status_updates": {
+            "key": "can_see_status",
+            "name": "Status Updates",
+            "description": "Can see your general wellness status and check-ins",
+            "privacy_level": "low",
+            "category": "wellness",
+        },
+        "crisis_alerts": {
+            "key": "crisis_alerts",
+            "name": "Crisis Alerts",
+            "description": "Gets notified immediately during mental health crises or emergencies",
+            "privacy_level": "high",
+            "category": "alerts",
+        },
+        "wellness_alerts": {
+            "key": "wellness_check_alerts",
+            "name": "Wellness Check Alerts",
+            "description": "Gets notified for regular wellness check-ins and concerning patterns",
+            "privacy_level": "medium",
+            "category": "alerts",
+        },
+        "mood_concern_alerts": {
+            "key": "mood_concerns",
+            "name": "Mood Concern Alerts",
+            "description": "Gets notified when your mood shows concerning patterns",
+            "privacy_level": "medium",
+            "category": "alerts",
+        },
+        "goal_reminders": {
+            "key": "goal_reminders",
+            "name": "Goal Reminder Alerts",
+            "description": "Gets notified to help remind you about your mental health goals",
+            "privacy_level": "low",
+            "category": "alerts",
         },
     }
+
+    # Relationship types - purely descriptive, no permission restrictions
+    RELATIONSHIP_TYPES = [
+        {
+            "value": "family",
+            "label": "Family Member",
+            "description": "Parent, sibling, child, or other family member",
+            "suggested_permissions": [
+                "crisis_alerts",
+                "wellness_alerts",
+                "mood_tracking",
+            ],
+        },
+        {
+            "value": "partner",
+            "label": "Partner/Spouse",
+            "description": "Romantic partner, spouse, or life partner",
+            "suggested_permissions": [
+                "crisis_alerts",
+                "wellness_alerts",
+                "mood_tracking",
+                "activity_tracking",
+            ],
+        },
+        {
+            "value": "friend",
+            "label": "Close Friend",
+            "description": "Close personal friend you trust with your wellness",
+            "suggested_permissions": [
+                "wellness_alerts",
+                "mood_tracking",
+                "status_updates",
+            ],
+        },
+        {
+            "value": "therapist",
+            "label": "Therapist",
+            "description": "Licensed therapist, counselor, or mental health professional",
+            "suggested_permissions": [
+                "mood_tracking",
+                "goals_progress",
+                "status_updates",
+            ],
+        },
+        {
+            "value": "counselor",
+            "label": "Counselor",
+            "description": "Guidance counselor, peer counselor, or support professional",
+            "suggested_permissions": [
+                "mood_tracking",
+                "wellness_alerts",
+                "status_updates",
+            ],
+        },
+        {
+            "value": "colleague",
+            "label": "Colleague",
+            "description": "Work colleague or professional contact",
+            "suggested_permissions": ["status_updates"],
+        },
+        {
+            "value": "neighbor",
+            "label": "Neighbor",
+            "description": "Neighbor or nearby contact for emergencies",
+            "suggested_permissions": ["crisis_alerts", "location_access"],
+        },
+        {
+            "value": "other",
+            "label": "Other",
+            "description": "Other type of supportive relationship",
+            "suggested_permissions": ["status_updates"],
+        },
+    ]
 
     @staticmethod
     def send_invitation(
@@ -104,100 +180,144 @@ class SafetyInvitationManager:
         relationship_type: str,
         requested_permissions: Dict[str, Any],
         invitation_message: str = "",
+        priority_order: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Send a safety network invitation to another user.
+        Send a safety network invitation with improved error handling.
 
-        Args:
-            requester_id: User sending the invitation
-            recipient_email: Email of user being invited
-            relationship_type: Type of relationship
-            requested_permissions: Permissions being requested
-            invitation_message: Personal message from requester
-
-        Returns:
-            Dictionary with invitation details and success status
+        Returns user-friendly error messages for common scenarios.
         """
         try:
             with get_db() as db:
                 # 1. Find recipient by email
-                recipient = (
-                    db.query(User)
-                    .filter(
-                        and_(
-                            User.email == recipient_email.lower().strip(),
-                            User.is_active == True,
-                        )
-                    )
-                    .first()
-                )
+                recipient = db.query(User).filter(User.email == recipient_email).first()
 
                 if not recipient:
                     return {
                         "success": False,
                         "error": "USER_NOT_FOUND",
-                        "message": "No active user found with that email address",
+                        "message": f"No user found with email {recipient_email}. They may need to create a Nura account first.",
+                        "user_friendly": True,
                     }
 
-                # 2. Check invitation eligibility
+                recipient_id = str(recipient.id)
+
+                # Prevent self-invitation
+                if requester_id == recipient_id:
+                    return {
+                        "success": False,
+                        "error": "SELF_INVITATION",
+                        "message": "You cannot send a safety network invitation to yourself.",
+                        "user_friendly": True,
+                    }
+
+                # 2. Check for existing relationships - provide specific error messages
+                # Check for pending invitation
+                existing_pending = (
+                    db.query(SafetyNetworkRequest)
+                    .filter(
+                        and_(
+                            SafetyNetworkRequest.requester_id == requester_id,
+                            SafetyNetworkRequest.requested_id == recipient_id,
+                            SafetyNetworkRequest.status == "pending",
+                        )
+                    )
+                    .first()
+                )
+
+                if existing_pending:
+                    days_ago = (datetime.utcnow() - existing_pending.created_at).days
+                    return {
+                        "success": False,
+                        "error": "PENDING_INVITATION_EXISTS",
+                        "message": f"You already sent an invitation to {recipient.full_name or recipient_email} {days_ago} days ago. Please wait for them to respond before sending another invitation.",
+                        "user_friendly": True,
+                        "existing_invitation": {
+                            "sent_date": existing_pending.created_at.isoformat(),
+                            "expires_date": (
+                                existing_pending.expires_at.isoformat()
+                                if existing_pending.expires_at
+                                else None
+                            ),
+                        },
+                    }
+
+                # Check for existing active safety contact
+                existing_contact = (
+                    db.query(SafetyContact)
+                    .filter(
+                        and_(
+                            SafetyContact.user_id == requester_id,
+                            SafetyContact.contact_user_id == recipient_id,
+                            SafetyContact.is_active == True,
+                        )
+                    )
+                    .first()
+                )
+
+                if existing_contact:
+                    return {
+                        "success": False,
+                        "error": "ALREADY_IN_NETWORK",
+                        "message": f"{recipient.full_name or recipient_email} is already in your safety network as a {existing_contact.relationship_type}. You can manage their permissions in your safety network settings.",
+                        "user_friendly": True,
+                        "existing_contact": {
+                            "relationship_type": existing_contact.relationship_type,
+                            "added_date": existing_contact.created_at.isoformat(),
+                            "is_emergency_contact": existing_contact.is_emergency_contact,
+                        },
+                    }
+
+                # 3. Check invitation eligibility (privacy settings, blocks, etc.)
                 eligibility = UserSearch.check_invitation_eligibility(
-                    requester_id, recipient.id, db
+                    requester_id, recipient_id, db
                 )
 
                 if not eligibility["can_invite"]:
+                    # Map technical reasons to user-friendly messages
+                    friendly_messages = {
+                        "BLOCKED": f"{recipient.full_name or recipient_email} has blocked invitations from you.",
+                        "NOT_ACCEPTING": f"{recipient.full_name or recipient_email} is not accepting safety network invitations at this time.",
+                        "VERIFICATION_REQUIRED": "You need to verify your account before sending invitations. Please check your email for verification instructions.",
+                        "NOT_DISCOVERABLE": f"{recipient.full_name or recipient_email} has limited their discoverability and cannot receive invitations.",
+                        "NO_MUTUAL_CONNECTIONS": f"You need mutual connections to invite {recipient.full_name or recipient_email}. Try connecting through friends first.",
+                    }
+
+                    user_message = friendly_messages.get(
+                        eligibility["reason_code"],
+                        eligibility.get(
+                            "user_message", "Unable to send invitation at this time."
+                        ),
+                    )
+
                     return {
                         "success": False,
                         "error": eligibility["reason_code"],
-                        "message": eligibility["user_message"],
+                        "message": user_message,
+                        "user_friendly": True,
                     }
 
-                # 3. Check for existing relationship
-                existing_relationships = UserSearch._get_existing_relationships(
-                    db, requester_id
+                # 4. Validate requested permissions
+                validation_result = SafetyInvitationManager._validate_permissions(
+                    requested_permissions
                 )
-
-                logger.info(
-                    f"Checking existing relationships for user {requester_id}: {existing_relationships}"
-                )
-
-                if recipient.id in existing_relationships:
-                    relationship_type = existing_relationships[recipient.id]
-                    logger.warning(
-                        f"Cannot send invitation from {requester_id} to {recipient.id}: existing {relationship_type}"
-                    )
+                if not validation_result["valid"]:
                     return {
                         "success": False,
-                        "error": "RELATIONSHIP_EXISTS",
-                        "message": f"You already have a {relationship_type} with this user",
+                        "error": "INVALID_PERMISSIONS",
+                        "message": "The permissions you selected are invalid. Please try again.",
+                        "user_friendly": True,
+                        "details": validation_result["message"],
                     }
 
-                # 4. Get recipient's default permissions for conflict detection
-                recipient_defaults = UserSearch.get_user_defaults_for_relationship(
-                    str(recipient.id), relationship_type
-                )
-
-                # 5. Detect permission conflicts
-                conflicts = SafetyInvitationManager._detect_permission_conflicts(
-                    requested_permissions, recipient_defaults
-                )
-
-                # 6. Check if invitation is eligible for auto-accept
-                auto_accept_eligible = (
-                    SafetyInvitationManager._check_auto_accept_eligibility(
-                        recipient, requested_permissions, recipient_defaults, conflicts
-                    )
-                )
-
-                # 7. Create invitation request
+                # 5. Create invitation request (clean, no legacy fields)
                 request = SafetyNetworkRequest(
                     requester_id=requester_id,
                     requested_id=str(recipient.id),
                     relationship_type=relationship_type,
                     invitation_message=invitation_message,
                     requested_permissions=requested_permissions,
-                    recipient_default_permissions=recipient_defaults,
-                    permission_conflicts=conflicts,
-                    auto_accept_eligible=auto_accept_eligible,
+                    requested_priority_order=priority_order,
                     invitation_preview=SafetyInvitationManager._generate_invitation_preview(
                         requester_id,
                         recipient,
@@ -210,31 +330,23 @@ class SafetyInvitationManager:
                 db.add(request)
                 db.commit()
 
-                # 8. Auto-accept if eligible
-                if auto_accept_eligible:
-                    accept_result = SafetyInvitationManager.accept_invitation(
-                        str(recipient.id),
-                        request.id,
-                        recipient_defaults,
-                        auto_accepted=True,
+                # 6. Generate user-friendly invitation summary
+                permission_summary = (
+                    SafetyInvitationManager._generate_permission_summary(
+                        requested_permissions
                     )
-
-                    if accept_result["success"]:
-                        return {
-                            "success": True,
-                            "invitation_id": request.id,
-                            "status": "auto_accepted",
-                            "message": "Invitation was automatically accepted based on user preferences",
-                        }
+                )
 
                 return {
                     "success": True,
                     "invitation_id": request.id,
                     "status": "pending",
-                    "recipient_name": recipient.full_name,
+                    "recipient_name": recipient.full_name or recipient_email,
                     "expires_at": request.expires_at.isoformat(),
-                    "has_conflicts": len(conflicts) > 0,
-                    "conflict_count": len(conflicts),
+                    "permission_summary": permission_summary,
+                    "relationship_type": relationship_type,
+                    "message": f"Safety network invitation sent to {recipient.full_name or recipient_email}! They have 30 days to respond.",
+                    "user_friendly": True,
                 }
 
         except Exception as e:
@@ -242,69 +354,115 @@ class SafetyInvitationManager:
             return {
                 "success": False,
                 "error": "INTERNAL_ERROR",
-                "message": "Failed to send invitation",
+                "message": "Unable to send invitation at this time. Please try again later.",
+                "user_friendly": True,
+                "technical_details": str(e),
             }
 
     @staticmethod
-    def get_invitation_preview(
-        recipient_id: str,
-        sender_id: str,
-        relationship_type: str,
-        requested_permissions: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        Generate a preview of what an invitation would look like for the recipient.
-
-        Args:
-            recipient_id: User who would receive the invitation
-            sender_id: User who would send the invitation
-            relationship_type: Type of relationship
-            requested_permissions: Permissions that would be requested
-
-        Returns:
-            Preview data including conflicts and recommendations
-        """
+    def _validate_permissions(permissions: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate that requested permissions are valid and properly formatted."""
         try:
-            with get_db() as db:
-                # Get users
-                sender = db.query(User).filter(User.id == sender_id).first()
-                recipient = db.query(User).filter(User.id == recipient_id).first()
+            # Check if permissions object is properly structured
+            if not isinstance(permissions, dict):
+                return {"valid": False, "message": "Permissions must be a dictionary"}
 
-                if not sender or not recipient:
-                    return {"error": "Users not found"}
+            # Validate individual permissions
+            valid_permission_keys = set()
+            for perm_info in SafetyInvitationManager.AVAILABLE_PERMISSIONS.values():
+                valid_permission_keys.add(perm_info["key"])
 
-                # Get recipient's defaults for this relationship type
-                recipient_defaults = UserSearch.get_user_defaults_for_relationship(
-                    recipient_id, relationship_type
-                )
-
-                # Detect conflicts
-                conflicts = SafetyInvitationManager._detect_permission_conflicts(
-                    requested_permissions, recipient_defaults
-                )
-
-                # Check auto-accept eligibility
-                auto_accept_eligible = (
-                    SafetyInvitationManager._check_auto_accept_eligibility(
-                        recipient, requested_permissions, recipient_defaults, conflicts
-                    )
-                )
-
+            # Check for invalid permission keys
+            invalid_keys = (
+                set(permissions.keys()) - valid_permission_keys - {"alert_preferences"}
+            )
+            if invalid_keys:
                 return {
-                    "sender_name": sender.full_name,
-                    "relationship_type": relationship_type,
-                    "requested_permissions": requested_permissions,
-                    "your_defaults": recipient_defaults,
-                    "conflicts": conflicts,
-                    "auto_accept_eligible": auto_accept_eligible,
-                    "recommendations": SafetyInvitationManager._generate_permission_recommendations(
-                        requested_permissions, recipient_defaults, conflicts
-                    ),
+                    "valid": False,
+                    "message": f"Invalid permission keys: {list(invalid_keys)}",
                 }
 
+            # Validate alert preferences if present
+            if "alert_preferences" in permissions:
+                alert_prefs = permissions["alert_preferences"]
+                if not isinstance(alert_prefs, dict):
+                    return {
+                        "valid": False,
+                        "message": "Alert preferences must be a dictionary",
+                    }
+
+            return {"valid": True, "message": "Permissions are valid"}
+
         except Exception as e:
-            logger.error(f"Error generating invitation preview: {e}")
-            return {"error": "Failed to generate preview"}
+            logger.error(f"Error validating permissions: {e}")
+            return {"valid": False, "message": "Error validating permissions"}
+
+    @staticmethod
+    def _generate_permission_summary(permissions: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate a user-friendly summary of what's being shared."""
+        summary = {
+            "data_access": [],
+            "alert_types": [],
+            "privacy_level": "minimal",
+            "total_permissions": 0,
+        }
+
+        # Count data access permissions
+        data_permissions = [
+            "can_see_location",
+            "can_see_mood",
+            "can_see_activities",
+            "can_see_goals",
+            "can_see_status",
+        ]
+        for perm_key in data_permissions:
+            if permissions.get(perm_key, False):
+                # Find the permission info
+                for (
+                    perm_name,
+                    perm_info,
+                ) in SafetyInvitationManager.AVAILABLE_PERMISSIONS.items():
+                    if perm_info["key"] == perm_key:
+                        summary["data_access"].append(
+                            {
+                                "name": perm_info["name"],
+                                "description": perm_info["description"],
+                            }
+                        )
+                        break
+
+        # Count alert permissions
+        alert_prefs = permissions.get("alert_preferences", {})
+        for alert_key, alert_enabled in alert_prefs.items():
+            if alert_enabled:
+                # Find the alert info
+                for (
+                    perm_name,
+                    perm_info,
+                ) in SafetyInvitationManager.AVAILABLE_PERMISSIONS.items():
+                    if perm_info["key"] == alert_key:
+                        summary["alert_types"].append(
+                            {
+                                "name": perm_info["name"],
+                                "description": perm_info["description"],
+                            }
+                        )
+                        break
+
+        # Calculate privacy level
+        total_permissions = len(summary["data_access"]) + len(summary["alert_types"])
+        summary["total_permissions"] = total_permissions
+
+        if total_permissions == 0:
+            summary["privacy_level"] = "none"
+        elif total_permissions <= 2:
+            summary["privacy_level"] = "minimal"
+        elif total_permissions <= 4:
+            summary["privacy_level"] = "moderate"
+        else:
+            summary["privacy_level"] = "comprehensive"
+
+        return summary
 
     @staticmethod
     def accept_invitation(
@@ -312,17 +470,18 @@ class SafetyInvitationManager:
         invitation_id: str,
         granted_permissions: Optional[Dict[str, Any]] = None,
         response_message: str = "",
-        auto_accepted: bool = False,
+        priority_order: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Accept a safety network invitation.
 
+        New approach: User can modify permissions when accepting.
+
         Args:
             user_id: User accepting the invitation
             invitation_id: Invitation being accepted
-            granted_permissions: Permissions being granted (optional)
+            granted_permissions: Permissions user is willing to grant (can be different from requested)
             response_message: Optional response message
-            auto_accepted: Whether this was auto-accepted
 
         Returns:
             Dictionary with success status and safety contact details
@@ -349,39 +508,54 @@ class SafetyInvitationManager:
                         "message": "Invitation not found or already processed",
                     }
 
+                # Store invitation data before deletion
+                requester_id = invitation.requester_id
+                relationship_type = invitation.relationship_type
+
                 # 2. Use granted permissions or fall back to requested permissions
                 final_permissions = (
                     granted_permissions or invitation.requested_permissions
                 )
 
-                # 3. Get next priority order for the new contact
-                priority_order = SafetyInvitationManager._get_next_priority_order(
-                    invitation.requester_id, db
+                # 3. Validate the final permissions
+                validation_result = SafetyInvitationManager._validate_permissions(
+                    final_permissions
+                )
+                if not validation_result["valid"]:
+                    return {
+                        "success": False,
+                        "error": "INVALID_PERMISSIONS",
+                        "message": validation_result["message"],
+                    }
+
+                # 4. Determine priority order for the new contact
+                # Use provided priority, or requested priority, or fall back to next available
+                final_priority_order = (
+                    priority_order
+                    or invitation.requested_priority_order
+                    or SafetyInvitationManager._get_next_priority_order(
+                        requester_id, db
+                    )
                 )
 
-                # 4. Create safety contact using SafetyNetworkManager
+                # 5. Create safety contact using SafetyNetworkManager
                 logger.info(
-                    f"Creating safety contact for invitation {invitation_id}: requester={invitation.requester_id}, contact={user_id}, relationship={invitation.relationship_type}"
+                    f"Creating safety contact for invitation {invitation_id}: requester={requester_id}, contact={user_id}, relationship={relationship_type}"
                 )
 
                 safety_contact = SafetyNetworkManager.add_safety_contact(
-                    user_id=invitation.requester_id,  # Requester gets the contact
+                    user_id=requester_id,  # Requester gets the contact
                     contact_user_id=user_id,  # User being contacted
-                    priority_order=priority_order,
-                    relationship_type=invitation.relationship_type,
+                    priority_order=final_priority_order,
+                    relationship_type=relationship_type,
                     allowed_communication_methods=["phone", "email", "sms"],
                     preferred_communication_method="phone",
-                    is_emergency_contact=final_permissions.get(
-                        "emergency_contact", False
-                    ),
+                    is_emergency_contact=False,  # User can set this later via separate action
                     custom_metadata={
                         "permissions": final_permissions,
                         "invitation_id": invitation_id,
-                        "auto_accepted": auto_accepted,
                     },
                 )
-
-                logger.info(f"Safety contact creation result: {safety_contact}")
 
                 if not safety_contact:
                     logger.error(
@@ -393,7 +567,7 @@ class SafetyInvitationManager:
                         "message": "Failed to create safety contact",
                     }
 
-                # 5. Create response record
+                # 6. Create response record (temporary - will be deleted with invitation)
                 response = SafetyNetworkResponse(
                     request_id=invitation_id,
                     response_type="accept",
@@ -402,19 +576,31 @@ class SafetyInvitationManager:
                 )
 
                 db.add(response)
+                db.flush()  # Make sure response is saved before deletion
 
-                # 6. Update invitation status
-                invitation.status = SafetyNetworkRequestStatus.ACCEPTED.value
-                invitation.updated_at = datetime.utcnow()
+                # 7. DELETE the invitation and response records to allow future invitations
+                # This is the key change - delete rather than just update status
+                logger.info(
+                    f"Deleting accepted invitation {invitation_id} to allow future re-invitations"
+                )
+                db.delete(response)
+                db.delete(invitation)
 
                 db.commit()
+
+                # 8. Generate summary of what was shared
+                permission_summary = (
+                    SafetyInvitationManager._generate_permission_summary(
+                        final_permissions
+                    )
+                )
 
                 return {
                     "success": True,
                     "safety_contact_id": safety_contact,
                     "granted_permissions": final_permissions,
+                    "permission_summary": permission_summary,
                     "status": "accepted",
-                    "auto_accepted": auto_accepted,
                 }
 
         except Exception as e:
@@ -426,23 +612,41 @@ class SafetyInvitationManager:
             }
 
     @staticmethod
+    def get_available_permissions() -> Dict[str, Any]:
+        """Get all available permissions that users can choose from."""
+        return {
+            "permissions": SafetyInvitationManager.AVAILABLE_PERMISSIONS,
+            "categories": {
+                "emergency": {
+                    "name": "Emergency & Crisis",
+                    "description": "Permissions related to emergency situations and crisis response",
+                    "privacy_note": "High privacy impact - only share with trusted contacts",
+                },
+                "wellness": {
+                    "name": "Wellness & Tracking",
+                    "description": "Permissions related to ongoing wellness monitoring and support",
+                    "privacy_note": "Medium privacy impact - sharing helps with ongoing support",
+                },
+                "alerts": {
+                    "name": "Notifications & Alerts",
+                    "description": "When and how contacts get notified about your wellness",
+                    "privacy_note": "Choose based on how much you want this person involved",
+                },
+            },
+        }
+
+    @staticmethod
+    def get_relationship_types() -> List[Dict[str, Any]]:
+        """Get available relationship types with suggestions."""
+        return SafetyInvitationManager.RELATIONSHIP_TYPES
+
+    @staticmethod
     def decline_invitation(
         user_id: str, invitation_id: str, response_message: str = ""
     ) -> Dict[str, Any]:
-        """
-        Decline a safety network invitation.
-
-        Args:
-            user_id: User declining the invitation
-            invitation_id: Invitation being declined
-            response_message: Optional response message
-
-        Returns:
-            Dictionary with success status
-        """
+        """Decline a safety network invitation."""
         try:
             with get_db() as db:
-                # Get invitation
                 invitation = (
                     db.query(SafetyNetworkRequest)
                     .filter(
@@ -462,7 +666,7 @@ class SafetyInvitationManager:
                         "message": "Invitation not found or already processed",
                     }
 
-                # Create response record
+                # Create response record (temporary - will be deleted with invitation)
                 response = SafetyNetworkResponse(
                     request_id=invitation_id,
                     response_type="decline",
@@ -470,14 +674,23 @@ class SafetyInvitationManager:
                 )
 
                 db.add(response)
+                db.flush()  # Make sure response is saved before deletion
 
-                # Update invitation status
-                invitation.status = SafetyNetworkRequestStatus.DECLINED.value
-                invitation.updated_at = datetime.utcnow()
+                # DELETE the invitation and response records to allow future invitations
+                # This allows users to send fresh invitations after being declined
+                logger.info(
+                    f"Deleting declined invitation {invitation_id} to allow future re-invitations"
+                )
+                db.delete(response)
+                db.delete(invitation)
 
                 db.commit()
 
-                return {"success": True, "status": "declined"}
+                return {
+                    "success": True,
+                    "status": "declined",
+                    "message": "Invitation declined successfully",
+                }
 
         except Exception as e:
             logger.error(f"Error declining invitation: {e}")
@@ -492,15 +705,9 @@ class SafetyInvitationManager:
         user_id: str, direction: str = "incoming", status: str = "pending"
     ) -> List[Dict[str, Any]]:
         """
-        Get invitations for a user (incoming or outgoing).
+        Get user's invitations with full permission details.
 
-        Args:
-            user_id: User to get invitations for
-            direction: "incoming" or "outgoing"
-            status: "pending", "accepted", "declined", "all"
-
-        Returns:
-            List of invitation dictionaries
+        Note: Since accepted/declined invitations are deleted, only pending invitations are available.
         """
         try:
             with get_db() as db:
@@ -514,15 +721,24 @@ class SafetyInvitationManager:
                         SafetyNetworkRequest.requester_id == user_id
                     )
 
-                # Add status filter
-                if status != "all":
-                    query = query.filter(SafetyNetworkRequest.status == status)
+                # Filter by status - only pending invitations exist in database now
+                if status == "all":
+                    # All that exist are pending, so no additional filter needed
+                    pass
+                elif status in ["accepted", "declined"]:
+                    # These are deleted from database, so return empty list
+                    logger.info(
+                        f"Requested {status} invitations, but these are deleted after processing"
+                    )
+                    return []
+                else:
+                    # For "pending" or any other status, filter to pending
+                    query = query.filter(SafetyNetworkRequest.status == "pending")
 
                 invitations = query.order_by(
                     SafetyNetworkRequest.created_at.desc()
                 ).all()
 
-                # Format invitations with user details
                 results = []
                 for invitation in invitations:
                     # Get the other user (sender for incoming, recipient for outgoing)
@@ -534,14 +750,20 @@ class SafetyInvitationManager:
 
                     other_user = db.query(User).filter(User.id == other_user_id).first()
 
+                    # Generate permission summary
+                    permission_summary = (
+                        SafetyInvitationManager._generate_permission_summary(
+                            invitation.requested_permissions or {}
+                        )
+                    )
+
                     invitation_data = {
                         "id": invitation.id,
-                        "status": invitation.status,
+                        "status": invitation.status,  # Will always be "pending"
                         "relationship_type": invitation.relationship_type,
                         "invitation_message": invitation.invitation_message,
                         "requested_permissions": invitation.requested_permissions,
-                        "permission_conflicts": invitation.permission_conflicts or [],
-                        "auto_accept_eligible": invitation.auto_accept_eligible,
+                        "permission_summary": permission_summary,
                         "created_at": invitation.created_at.isoformat(),
                         "expires_at": (
                             invitation.expires_at.isoformat()
@@ -566,22 +788,7 @@ class SafetyInvitationManager:
                         ),
                     }
 
-                    # Add response details if invitation is not pending
-                    if invitation.status != "pending":
-                        response = (
-                            db.query(SafetyNetworkResponse)
-                            .filter(SafetyNetworkResponse.request_id == invitation.id)
-                            .first()
-                        )
-
-                        if response:
-                            invitation_data["response"] = {
-                                "response_type": response.response_type,
-                                "response_message": response.response_message,
-                                "granted_permissions": response.granted_permissions,
-                                "responded_at": response.responded_at.isoformat(),
-                            }
-
+                    # Note: No response details since accepted/declined invitations are deleted
                     results.append(invitation_data)
 
                 return results
@@ -590,407 +797,7 @@ class SafetyInvitationManager:
             logger.error(f"Error getting user invitations: {e}")
             return []
 
-    # =============================================================================
-    # BLOCKING SYSTEM
-    # =============================================================================
-
-    @staticmethod
-    def block_user(
-        blocking_user_id: str,
-        blocked_user_id: str,
-        block_type: str = "invitations",
-        reason: str = "",
-    ) -> Dict[str, Any]:
-        """
-        Block a user from sending invitations or being discovered.
-
-        Args:
-            blocking_user_id: User doing the blocking
-            blocked_user_id: User being blocked
-            block_type: "invitations", "discovery", or "all"
-            reason: Private reason for blocking
-
-        Returns:
-            Success status and block details
-        """
-        try:
-            with get_db() as db:
-                # Check if block already exists
-                existing_block = (
-                    db.query(UserBlock)
-                    .filter(
-                        and_(
-                            UserBlock.blocking_user_id == blocking_user_id,
-                            UserBlock.blocked_user_id == blocked_user_id,
-                        )
-                    )
-                    .first()
-                )
-
-                if existing_block:
-                    # Update existing block
-                    existing_block.block_type = block_type
-                    existing_block.blocker_reason = reason
-                    existing_block.created_at = datetime.utcnow()
-                else:
-                    # Create new block
-                    new_block = UserBlock(
-                        blocking_user_id=blocking_user_id,
-                        blocked_user_id=blocked_user_id,
-                        block_type=block_type,
-                        blocker_reason=reason,
-                    )
-                    db.add(new_block)
-
-                db.commit()
-
-                return {
-                    "success": True,
-                    "block_type": block_type,
-                    "message": f"User blocked from {block_type}",
-                }
-
-        except Exception as e:
-            logger.error(f"Error blocking user: {e}")
-            return {
-                "success": False,
-                "error": "INTERNAL_ERROR",
-                "message": "Failed to block user",
-            }
-
-    @staticmethod
-    def unblock_user(blocking_user_id: str, blocked_user_id: str) -> Dict[str, Any]:
-        """
-        Unblock a previously blocked user.
-
-        Args:
-            blocking_user_id: User doing the unblocking
-            blocked_user_id: User being unblocked
-
-        Returns:
-            Success status
-        """
-        try:
-            with get_db() as db:
-                block = (
-                    db.query(UserBlock)
-                    .filter(
-                        and_(
-                            UserBlock.blocking_user_id == blocking_user_id,
-                            UserBlock.blocked_user_id == blocked_user_id,
-                        )
-                    )
-                    .first()
-                )
-
-                if not block:
-                    return {
-                        "success": False,
-                        "error": "BLOCK_NOT_FOUND",
-                        "message": "No block found for this user",
-                    }
-
-                db.delete(block)
-                db.commit()
-
-                return {"success": True, "message": "User has been unblocked"}
-
-        except Exception as e:
-            logger.error(f"Error unblocking user: {e}")
-            return {
-                "success": False,
-                "error": "INTERNAL_ERROR",
-                "message": "Failed to unblock user",
-            }
-
-    @staticmethod
-    def get_blocked_users(user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get list of users blocked by the current user.
-
-        Args:
-            user_id: User whose blocks to retrieve
-
-        Returns:
-            List of blocked user details
-        """
-        try:
-            with get_db() as db:
-                blocks = (
-                    db.query(UserBlock)
-                    .filter(UserBlock.blocking_user_id == user_id)
-                    .all()
-                )
-
-                results = []
-                for block in blocks:
-                    blocked_user = (
-                        db.query(User).filter(User.id == block.blocked_user_id).first()
-                    )
-
-                    if blocked_user:
-                        results.append(
-                            {
-                                "id": str(blocked_user.id),
-                                "full_name": blocked_user.full_name,
-                                "display_name": blocked_user.display_name,
-                                "block_type": block.block_type,
-                                "blocked_at": block.created_at.isoformat(),
-                            }
-                        )
-
-                return results
-
-        except Exception as e:
-            logger.error(f"Error getting blocked users: {e}")
-            return []
-
-    # =============================================================================
-    # PERMISSION MANAGEMENT
-    # =============================================================================
-
-    @staticmethod
-    def update_contact_permissions(
-        user_id: str,
-        safety_contact_id: str,
-        new_permissions: Dict[str, Any],
-        change_reason: str = "",
-    ) -> Dict[str, Any]:
-        """
-        Update permissions for an existing safety contact.
-
-        Args:
-            user_id: User who owns the safety contact
-            safety_contact_id: Safety contact to update
-            new_permissions: New permission set
-            change_reason: Reason for the change
-
-        Returns:
-            Success status and updated permissions
-        """
-        try:
-            with get_db() as db:
-                # Get safety contact
-                contact = (
-                    db.query(SafetyContact)
-                    .filter(
-                        and_(
-                            SafetyContact.id == safety_contact_id,
-                            SafetyContact.user_id == user_id,
-                        )
-                    )
-                    .first()
-                )
-
-                if not contact:
-                    return {
-                        "success": False,
-                        "error": "CONTACT_NOT_FOUND",
-                        "message": "Safety contact not found",
-                    }
-
-                # Get old permissions
-                old_permissions = (
-                    contact.custom_metadata.get("permissions", {})
-                    if contact.custom_metadata
-                    else {}
-                )
-
-                # Update permissions
-                if not contact.custom_metadata:
-                    contact.custom_metadata = {}
-                contact.custom_metadata["permissions"] = new_permissions
-                contact.updated_at = datetime.utcnow()
-
-                # Log the permission change
-                permission_change = SafetyPermissionChange(
-                    safety_contact_id=safety_contact_id,
-                    user_id=user_id,
-                    changed_by_user_id=user_id,
-                    old_permissions=old_permissions,
-                    new_permissions=new_permissions,
-                    change_reason=change_reason,
-                )
-
-                db.add(permission_change)
-                db.commit()
-
-                return {
-                    "success": True,
-                    "updated_permissions": new_permissions,
-                    "message": "Permissions updated successfully",
-                }
-
-        except Exception as e:
-            logger.error(f"Error updating contact permissions: {e}")
-            return {
-                "success": False,
-                "error": "INTERNAL_ERROR",
-                "message": "Failed to update permissions",
-            }
-
-    # =============================================================================
-    # PRIVACY SETTINGS
-    # =============================================================================
-
-    @staticmethod
-    def update_privacy_settings(
-        user_id: str, new_settings: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Update user's privacy settings for safety network.
-
-        Args:
-            user_id: User whose settings to update
-            new_settings: New privacy settings
-
-        Returns:
-            Success status and updated settings
-        """
-        try:
-            with get_db() as db:
-                user = db.query(User).filter(User.id == user_id).first()
-                if not user:
-                    return {
-                        "success": False,
-                        "error": "USER_NOT_FOUND",
-                        "message": "User not found",
-                    }
-
-                # Initialize privacy settings if they don't exist
-                if not user.privacy_settings:
-                    user.privacy_settings = {}
-
-                # Update safety network privacy settings
-                if "safety_network_privacy" not in user.privacy_settings:
-                    user.privacy_settings["safety_network_privacy"] = {}
-
-                # Merge new settings with existing ones
-                current_safety_settings = user.privacy_settings[
-                    "safety_network_privacy"
-                ]
-                current_safety_settings.update(new_settings)
-
-                db.commit()
-
-                return {
-                    "success": True,
-                    "updated_settings": current_safety_settings,
-                    "message": "Privacy settings updated successfully",
-                }
-
-        except Exception as e:
-            logger.error(f"Error updating privacy settings: {e}")
-            return {
-                "success": False,
-                "error": "INTERNAL_ERROR",
-                "message": "Failed to update privacy settings",
-            }
-
-    @staticmethod
-    def get_default_permissions_for_relationship(
-        relationship_type: str,
-    ) -> Dict[str, Any]:
-        """
-        Get the default permission template for a relationship type.
-
-        Args:
-            relationship_type: Type of relationship
-
-        Returns:
-            Default permissions dictionary
-        """
-        return SafetyInvitationManager.DEFAULT_PERMISSIONS.get(
-            relationship_type,
-            SafetyInvitationManager.DEFAULT_PERMISSIONS["basic_support"],
-        )
-
-    # =============================================================================
-    # HELPER METHODS
-    # =============================================================================
-
-    @staticmethod
-    def _detect_permission_conflicts(
-        requested: Dict[str, Any], defaults: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Detect conflicts between requested and default permissions."""
-        conflicts = []
-
-        if not defaults:  # No defaults set, no conflicts
-            return conflicts
-
-        for key, requested_value in requested.items():
-            if key in defaults:
-                default_value = defaults[key]
-
-                if isinstance(requested_value, dict) and isinstance(
-                    default_value, dict
-                ):
-                    # Recursively check nested permissions
-                    nested_conflicts = (
-                        SafetyInvitationManager._detect_permission_conflicts(
-                            requested_value, default_value
-                        )
-                    )
-                    for conflict in nested_conflicts:
-                        conflict["path"] = f"{key}.{conflict['path']}"
-                        conflicts.append(conflict)
-                elif requested_value != default_value:
-                    conflicts.append(
-                        {
-                            "path": key,
-                            "requested": requested_value,
-                            "default": default_value,
-                            "severity": (
-                                "medium" if isinstance(requested_value, bool) else "low"
-                            ),
-                        }
-                    )
-
-        return conflicts
-
-    @staticmethod
-    def _check_auto_accept_eligibility(
-        recipient: User,
-        requested: Dict[str, Any],
-        defaults: Dict[str, Any],
-        conflicts: List[Dict[str, Any]],
-    ) -> bool:
-        """Check if invitation is eligible for auto-accept."""
-        try:
-            # Get user's auto-accept settings
-            privacy_settings = recipient.privacy_settings.get(
-                "safety_network_privacy", {}
-            )
-            invitation_controls = privacy_settings.get("invitation_controls", {})
-
-            auto_accept_settings = invitation_controls.get("auto_accept", {})
-
-            # Check if auto-accept is enabled
-            if not auto_accept_settings.get("enabled", False):
-                return False
-
-            # Check if there are conflicts and user allows auto-accept with conflicts
-            if conflicts and not auto_accept_settings.get(
-                "allow_with_conflicts", False
-            ):
-                return False
-
-            # Check conflict severity threshold
-            max_severity = auto_accept_settings.get("max_conflict_severity", "low")
-            severity_levels = {"low": 0, "medium": 1, "high": 2}
-            max_level = severity_levels.get(max_severity, 0)
-
-            for conflict in conflicts:
-                conflict_level = severity_levels.get(conflict.get("severity", "low"), 0)
-                if conflict_level > max_level:
-                    return False
-
-            return True
-
-        except Exception:
-            return False
-
+    # Utility methods
     @staticmethod
     def _generate_invitation_preview(
         requester_id: str,
@@ -1002,90 +809,20 @@ class SafetyInvitationManager:
         try:
             with get_db() as db:
                 requester = db.query(User).filter(User.id == requester_id).first()
+                permission_summary = (
+                    SafetyInvitationManager._generate_permission_summary(
+                        requested_permissions
+                    )
+                )
 
                 return {
                     "requester_name": requester.full_name if requester else "Unknown",
                     "relationship_type": relationship_type,
-                    "permission_summary": SafetyInvitationManager._summarize_permissions(
-                        requested_permissions
-                    ),
-                    "estimated_access_level": SafetyInvitationManager._estimate_access_level(
-                        requested_permissions
-                    ),
+                    "permission_summary": permission_summary,
                 }
 
         except Exception:
             return {}
-
-    @staticmethod
-    def _summarize_permissions(permissions: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a summary of permission levels."""
-        summary = {
-            "location_access": permissions.get("can_see_location", False),
-            "emergency_contact": permissions.get("emergency_contact", False),
-            "mood_tracking": permissions.get("can_see_mood", False),
-            "activity_tracking": permissions.get("can_see_activities", False),
-            "alert_count": len(
-                [k for k, v in permissions.get("alert_preferences", {}).items() if v]
-            ),
-        }
-        return summary
-
-    @staticmethod
-    def _estimate_access_level(permissions: Dict[str, Any]) -> str:
-        """Estimate the overall access level of permissions."""
-        emergency_features = [
-            permissions.get("can_see_location", False),
-            permissions.get("emergency_contact", False),
-            permissions.get("can_receive_alerts", False),
-        ]
-
-        personal_features = [
-            permissions.get("can_see_mood", False),
-            permissions.get("can_see_activities", False),
-            permissions.get("can_see_goals", False),
-        ]
-
-        if all(emergency_features) and all(personal_features):
-            return "comprehensive"
-        elif any(emergency_features) and any(personal_features):
-            return "moderate"
-        elif any(emergency_features):
-            return "emergency_only"
-        elif any(personal_features):
-            return "basic"
-        else:
-            return "minimal"
-
-    @staticmethod
-    def _generate_permission_recommendations(
-        requested: Dict[str, Any],
-        defaults: Dict[str, Any],
-        conflicts: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """Generate recommendations for resolving permission conflicts."""
-        recommendations = []
-
-        for conflict in conflicts:
-            rec = {
-                "path": conflict["path"],
-                "recommendation": "consider_default",
-                "explanation": f"Your usual preference for this is {conflict['default']}, but they're requesting {conflict['requested']}",
-            }
-
-            # Add specific recommendations based on permission type
-            if "location" in conflict["path"].lower():
-                rec["privacy_note"] = (
-                    "Location sharing is sensitive - only grant to trusted contacts"
-                )
-            elif "emergency" in conflict["path"].lower():
-                rec["importance_note"] = (
-                    "Emergency contact permissions are crucial for safety"
-                )
-
-            recommendations.append(rec)
-
-        return recommendations
 
     @staticmethod
     def _get_next_priority_order(user_id: str, db) -> int:
@@ -1103,97 +840,3 @@ class SafetyInvitationManager:
         except Exception as e:
             logger.error(f"Error getting next priority order: {e}")
             return 1
-
-    @staticmethod
-    def get_relationship_types():
-        """Get available relationship types."""
-        return [
-            {
-                "value": "family",
-                "label": "Family Member",
-                "description": "Parent, sibling, child, or other family",
-            },
-            {
-                "value": "friend",
-                "label": "Friend",
-                "description": "Close personal friend",
-            },
-            {
-                "value": "partner",
-                "label": "Partner/Spouse",
-                "description": "Romantic partner or spouse",
-            },
-            {
-                "value": "therapist",
-                "label": "Therapist",
-                "description": "Licensed therapist or counselor",
-            },
-            {
-                "value": "counselor",
-                "label": "Counselor",
-                "description": "Guidance counselor or mental health professional",
-            },
-            {
-                "value": "colleague",
-                "label": "Colleague",
-                "description": "Work colleague or professional contact",
-            },
-            {
-                "value": "neighbor",
-                "label": "Neighbor",
-                "description": "Neighbor or nearby contact",
-            },
-            {
-                "value": "other",
-                "label": "Other",
-                "description": "Other type of relationship",
-            },
-        ]
-
-    @staticmethod
-    def get_permission_templates():
-        """Get permission templates with names and descriptions."""
-        templates = {}
-        for (
-            template_name,
-            permissions,
-        ) in SafetyInvitationManager.DEFAULT_PERMISSIONS.items():
-            templates[template_name] = {
-                "name": template_name.replace("_", " ").title(),
-                "description": SafetyInvitationManager._get_template_description(
-                    template_name
-                ),
-                "permissions": permissions,
-            }
-        return templates
-
-    @staticmethod
-    def _get_template_description(template_name: str) -> str:
-        """Get description for permission template."""
-        descriptions = {
-            "emergency_only": "Basic emergency contact with location access during crises",
-            "wellness_support": "Mental health support with mood tracking but no location access",
-            "basic_support": "General support with mood and activity tracking",
-            "family_member": "Comprehensive access for trusted family members",
-        }
-        return descriptions.get(template_name, "Custom permission template")
-
-    @staticmethod
-    def get_default_permissions_for_relationship(
-        relationship_type: str,
-    ) -> Dict[str, Any]:
-        """Get default permissions for a relationship type."""
-        # Map relationship types to permission templates
-        relationship_to_template = {
-            "family": "family_member",
-            "partner": "family_member",
-            "therapist": "wellness_support",
-            "counselor": "wellness_support",
-            "friend": "basic_support",
-            "colleague": "basic_support",
-            "neighbor": "emergency_only",
-            "other": "basic_support",
-        }
-
-        template_name = relationship_to_template.get(relationship_type, "basic_support")
-        return SafetyInvitationManager.DEFAULT_PERMISSIONS[template_name]

@@ -15,4 +15,4 @@ export const useStreakStats = () => {
       return data;
     },
   });
-}; 
+};

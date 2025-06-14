@@ -32,11 +32,22 @@ export interface SendInvitationPayload {
   relationship_type: string;
   requested_permissions: object;
   invitation_message?: string;
+  priority_order?: number;
 }
 
 export interface AcceptInvitationPayload {
   granted_permissions: object;
   response_message?: string;
+  priority_order?: number;
+}
+
+export interface UpdatePriorityPayload {
+  contact_id: string;
+  priority_order: number;
+}
+
+export interface ReorderContactsPayload {
+  contact_priorities: Record<string, number>;
 }
 
 // Safety Invitations API functions
@@ -74,5 +85,20 @@ export const safetyInvitationsApi = {
   rejectInvitation: (invitationId: string) =>
     axiosInstance
       .post(`/safety-invitations/invitations/${invitationId}/decline`)
+      .then((res) => res.data),
+
+  // Get who I'm helping (where I am someone's safety contact)
+  getWhoAmIHelping: () =>
+    axiosInstance.get("/safety-network/helping").then((res) => res.data),
+
+  // Priority management
+  updateContactPriority: (data: UpdatePriorityPayload) =>
+    axiosInstance
+      .put("/safety-invitations/contacts/priority", data)
+      .then((res) => res.data),
+
+  reorderContacts: (data: ReorderContactsPayload) =>
+    axiosInstance
+      .put("/safety-invitations/contacts/reorder", data)
       .then((res) => res.data),
 };

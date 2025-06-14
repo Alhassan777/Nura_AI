@@ -1,59 +1,61 @@
 // src/services/badges.ts
-import { createClient as createSupabaseClient } from '@/utils/supabase/server'
+import { createClient as createSupabaseClient } from "@/utils/supabase/server";
 import dayjs from "dayjs";
-import { awardXp } from '../utils/award-xp';
+import { awardXp } from "../utils/award-xp";
 
 export type Badge = {
-  id: number
-  name: string
-  description: string
-  threshold_type: string
-  threshold_value: number
-  icon: string
-  created_at: string
-}
+  id: number;
+  name: string;
+  description: string;
+  threshold_type: string;
+  threshold_value: number;
+  icon: string;
+  created_at: string;
+};
 
-export async function getBadgesGroupedByType(): Promise<Record<string, Badge[]>> {
-  const supabase = await createSupabaseClient()
+export async function getBadgesGroupedByType(): Promise<
+  Record<string, Badge[]>
+> {
+  const supabase = await createSupabaseClient();
 
   const { data: user, error: userError } = await supabase.auth.getUser();
   if (userError) {
-    console.error('Error fetching user:', userError)
-    throw userError
+    console.error("Error fetching user:", userError);
+    throw userError;
   }
   const userId = user.user?.id;
 
   // 1) Fetch all badges, ordering by threshold so UI shows small→large
   const { data: badges, error } = await supabase
-    .from('badges')
-    .select('*')
-    .order('threshold_value', { ascending: true })
+    .from("badges")
+    .select("*")
+    .order("threshold_value", { ascending: true });
 
   if (error) {
-    console.error('Error fetching badges:', error)
-    throw error
+    console.error("Error fetching badges:", error);
+    throw error;
   }
 
   const { data: userBadges, error: userBadgesError } = await supabase
-    .from('user_badges')
-    .select('*')
-    .eq('user_id', userId)
+    .from("user_badges")
+    .select("*")
+    .eq("user_id", userId);
 
   if (userBadgesError) {
-    console.error('Error fetching user badges:', userBadgesError)
-    throw userBadgesError
+    console.error("Error fetching user badges:", userBadgesError);
+    throw userBadgesError;
   }
 
   // 2) Reduce into groups keyed by threshold_type
   return badges!.reduce((groups, badge) => {
-    const key = badge.threshold_type
-    if (!groups[key]) groups[key] = []
-    badge.unlocked = userBadges?.some(ub => ub.badge_id === badge.id) ?? false
-    groups[key].push(badge)
-    return groups
-  }, {} as Record<string, Badge[]>)
+    const key = badge.threshold_type;
+    if (!groups[key]) groups[key] = [];
+    badge.unlocked =
+      userBadges?.some((ub) => ub.badge_id === badge.id) ?? false;
+    groups[key].push(badge);
+    return groups;
+  }, {} as Record<string, Badge[]>);
 }
-
 
 /**
  * Awards all static badges of a given threshold_type for a user.
@@ -75,7 +77,10 @@ export async function handleStaticBadgesForType(
     .order("threshold_value", { ascending: true });
 
   if (badgesError) {
-    console.error(`Error fetching badges for type "${thresholdType}":`, badgesError);
+    console.error(
+      `Error fetching badges for type "${thresholdType}":`,
+      badgesError
+    );
     throw badgesError;
   }
   if (!badges || badges.length === 0) {
@@ -175,4 +180,3 @@ export async function handleStaticBadgesForType(
     }
   }
 }
-

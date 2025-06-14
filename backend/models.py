@@ -987,6 +987,11 @@ class SafetyNetworkRequest(Base):
         JSON, nullable=False, default=dict
     )  # What Alice wants from Bob
 
+    # Priority preferences
+    requested_priority_order = Column(
+        Integer, nullable=True
+    )  # Priority order requested by sender (1 = highest)
+
     # New privacy-aware fields
     recipient_default_permissions = Column(
         JSON, nullable=True

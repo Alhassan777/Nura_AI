@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "antd";
+import { Button, Modal } from "antd";
 import {
   UserAddOutlined,
   TeamOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
 import { SafetyNetworkList } from "@/components/safety-network/SafetyNetworkList";
-import { AddContactModal } from "@/components/safety-network/AddContactModal";
+import { SendInvitationForm } from "@/components/safety-network/SendInvitationForm";
 import { EmergencyContactsSection } from "@/components/safety-network/EmergencyContactsSection";
 import { InvitationsSection } from "@/components/safety-network/InvitationsSection";
 import {
@@ -105,11 +105,20 @@ export default function SafetyNetworkPage() {
       {/* Invitations Section */}
       <InvitationsSection />
 
-      {/* Add Contact Modal */}
-      <AddContactModal
-        isOpen={showAddContactModal}
-        onClose={() => setShowAddContactModal(false)}
-      />
+      {/* Send Invitation Form Modal */}
+      <Modal
+        open={showAddContactModal}
+        onCancel={() => setShowAddContactModal(false)}
+        footer={null}
+        width={900}
+        centered
+        destroyOnHidden
+      >
+        <SendInvitationForm
+          onSuccess={() => setShowAddContactModal(false)}
+          onCancel={() => setShowAddContactModal(false)}
+        />
+      </Modal>
     </div>
   );
 }

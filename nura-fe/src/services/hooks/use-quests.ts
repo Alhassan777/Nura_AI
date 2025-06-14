@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createQuest, getUserQuests, completeQuest } from "@/services/apis/gamification/quests";
+import {
+  createQuest,
+  getUserQuests,
+  completeQuest,
+} from "@/services/apis/gamification/quests";
 import { CreateQuestType } from "@/app/api/gamification/quests/utils";
 
 export const useQuests = () => {

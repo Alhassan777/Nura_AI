@@ -277,81 +277,48 @@ class UserSearch:
             }
 
     @staticmethod
-    def get_user_defaults_for_relationship(
-        user_id: str, relationship_type: str
-    ) -> Dict[str, Any]:
-        """
-        Get user's default permissions for a specific relationship type.
-
-        Args:
-            user_id: User whose defaults to retrieve
-            relationship_type: Type of relationship (family, friend, etc.)
-
-        Returns:
-            Default permissions dict for the relationship type
-        """
-        try:
-            with get_db() as db:
-                user = db.query(User).filter(User.id == user_id).first()
-                if not user:
-                    return {}
-
-                privacy_settings = user.privacy_settings.get(
-                    "safety_network_privacy", {}
-                )
-                relationship_defaults = privacy_settings.get(
-                    "relationship_defaults", {}
-                )
-
-                return relationship_defaults.get(relationship_type, {}).get(
-                    "default_permissions", {}
-                )
-
-        except Exception as e:
-            logger.error(f"Error getting user defaults: {e}")
-            return {}
-
-    @staticmethod
     def _get_existing_relationships(db, user_id: str) -> Dict[str, str]:
         """
-        Get existing relationships for a user (pending invitations, existing contacts).
+        Get existing relationships that should BLOCK sending new invitations.
+
+        Business Rules:
+        - BLOCK: Pending invitations (can't send duplicate)
+        - BLOCK: Active safety contacts (relationship already exists)
+        - ALLOW: Declined invitations (user can try again)
+        - ALLOW: Accepted but removed contacts (relationship ended)
 
         Note: This only blocks outgoing requests and existing contacts.
         Incoming requests do NOT block sending invitations (allows bidirectional invitations).
 
         Returns:
-            Dict mapping user_id to relationship status
+            Dict mapping user_id to relationship status (only blocking relationships)
         """
         relationships = {}
 
-        # Check pending outgoing requests (blocks sending another invitation)
-        outgoing_requests = (
+        # 1. Check PENDING outgoing requests (blocks sending another invitation)
+        pending_requests = (
             db.query(SafetyNetworkRequest)
             .filter(
                 and_(
                     SafetyNetworkRequest.requester_id == user_id,
-                    SafetyNetworkRequest.status.in_(["pending", "accepted"]),
+                    SafetyNetworkRequest.status
+                    == "pending",  # Only pending, not accepted
                 )
             )
             .all()
         )
 
-        for request in outgoing_requests:
-            relationships[request.requested_id] = (
-                "pending_request" if request.status == "pending" else "existing_contact"
-            )
+        for request in pending_requests:
+            relationships[request.requested_id] = "pending_request"
 
-        # NOTE: We do NOT include incoming requests here to allow bidirectional invitations
-        # If Alice sends invitation to Bob, Bob can still send invitation to Alice
-
-        # Check existing safety contacts (external or user-based)
+        # 2. Check ACTIVE safety contacts (blocks sending invitation to existing contacts)
         existing_contacts = (
             db.query(SafetyContact)
             .filter(
                 and_(
                     SafetyContact.user_id == user_id,
                     SafetyContact.contact_user_id.isnot(None),
-                    SafetyContact.is_active == True,
+                    SafetyContact.is_active == True,  # Only active contacts
                 )
             )
             .all()
@@ -360,6 +327,11 @@ class UserSearch:
         for contact in existing_contacts:
             if contact.contact_user_id:
                 relationships[contact.contact_user_id] = "existing_contact"
+
+        # NOTE: We do NOT include:
+        # - Declined invitations (user can try again)
+        # - Accepted invitations without active safety contact (relationship was removed)
+        # - Incoming requests (allows bidirectional invitations)
 
         return relationships
 

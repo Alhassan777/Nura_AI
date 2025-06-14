@@ -25,6 +25,14 @@ export interface UpdateEmergencyContactPayload {
   is_emergency_contact: boolean;
 }
 
+export interface UpdateContactPriorityPayload {
+  priority_order: number;
+}
+
+export interface ReorderContactsPayload {
+  contact_priorities: Record<string, number>;
+}
+
 // Safety Network API functions
 export const safetyNetworkApi = {
   // Get user's safety network
@@ -58,5 +66,19 @@ export const safetyNetworkApi = {
   ) =>
     axiosInstance
       .put(`/safety-network/contacts/${contactId}`, data)
+      .then((res) => res.data),
+
+  // Priority management
+  updateContactPriority: (
+    contactId: string,
+    data: UpdateContactPriorityPayload
+  ) =>
+    axiosInstance
+      .put(`/safety-network/contacts/${contactId}/priority`, data)
+      .then((res) => res.data),
+
+  reorderContacts: (data: ReorderContactsPayload) =>
+    axiosInstance
+      .put("/safety-network/contacts/reorder", data)
       .then((res) => res.data),
 };
