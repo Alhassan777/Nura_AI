@@ -108,8 +108,7 @@ export default function Sidebar() {
   };
 
   const sidebarClasses = `
-    md:sticky fixed top-0 h-screen bg-white/80 backdrop-blur-md border-r border-gray-200 shadow-xs flex flex-col
-    transition-all duration-300 ease-in-out
+    md:sticky fixed top-0 h-screen bg-white/80 backdrop-blur-md border-r border-gray-200 shadow-xs flex flex-col z-10 transition-all duration-300 ease-in-out
     ${
       isMobile
         ? "left-0 z-50 w-72 transform " +
