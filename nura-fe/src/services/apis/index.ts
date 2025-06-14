@@ -11,6 +11,7 @@ export type SendMessageBody = Partial<{
 
 export const axiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
+
 });
 
 // Add request interceptor to include auth token

@@ -20,7 +20,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    axios.defaults.baseURL = process.env.NEXT_PUBLIC_API_URL;
+    axios.defaults.baseURL = process.env.NEXT_PUBLIC_BASE_URL;
   }, []);
 
   return (

@@ -1,9 +1,22 @@
 import { createClient as createSupabaseClient } from "@/utils/supabase/server";
 import dayjs from "dayjs";
+import { getReflectionXpReward } from "@/utils/level-system";
 
 export async function validateReflectionXp(userId: string): Promise<number> {
   const supabase = await createSupabaseClient();
   const todayStart = dayjs().startOf('day').toISOString();
+
+  // Get user's current streak
+  const { data: user, error: userError } = await supabase
+    .from('users')
+    .select('current_streak')
+    .eq('id', userId)
+    .single();
+
+  if (userError) {
+    console.error('validateReflectionXp > fetch user error:', userError);
+    return 0;
+  }
 
   // fetch all reflection xp_events from today
   const { data: events, error } = await supabase
@@ -23,8 +36,13 @@ export async function validateReflectionXp(userId: string): Promise<number> {
   const usedSlots = events.filter(e => e.amount > 0);
   const slotCount = usedSlots.length;
 
-  // our 3‐slot schedule
-  const xpSchedule = [20, 10, 5];
+  // our 3‐slot schedule with streak bonus
+  const baseXp = getReflectionXpReward(user?.current_streak || 0);
+  const xpSchedule = [
+    baseXp,                    // First reflection of the day
+    Math.floor(baseXp * 0.5),  // Second reflection (50% of base)
+    Math.floor(baseXp * 0.25)  // Third reflection (25% of base)
+  ];
 
   // if still have a slot, award next slot
   if (slotCount < xpSchedule.length) {

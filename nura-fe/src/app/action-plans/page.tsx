@@ -77,7 +77,7 @@ export default function ActionPlansPage() {
   const [form] = Form.useForm();
 
   const filteredPlans =
-    actionPlans?.filter((plan: ActionPlan) => {
+    actionPlans?.filter((plan: any) => {
       const statusMatch =
         filterStatus === "all" || plan.status === filterStatus;
       const typeMatch = filterType === "all" || plan.type === filterType;
@@ -174,8 +174,8 @@ export default function ActionPlansPage() {
         <Card>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">
-              {actionPlans?.filter((p: ActionPlan) => p.status === "active")
-                .length || 0}
+              {actionPlans?.filter((p: any) => p.status === "active").length ||
+                0}
             </div>
             <div className="text-sm text-gray-500">Active Plans</div>
           </div>
@@ -183,7 +183,7 @@ export default function ActionPlansPage() {
         <Card>
           <div className="text-center">
             <div className="text-2xl font-bold text-purple-600">
-              {actionPlans?.filter((p: ActionPlan) => p.status === "completed")
+              {actionPlans?.filter((p: any) => p.status === "completed")
                 .length || 0}
             </div>
             <div className="text-sm text-gray-500">Completed</div>
@@ -193,10 +193,10 @@ export default function ActionPlansPage() {
           <div className="text-center">
             <div className="text-2xl font-bold text-orange-600">
               {Math.round(
-                actionPlans?.reduce(
-                  (sum: number, p: ActionPlan) => sum + p.progress,
+                (actionPlans?.reduce(
+                  (sum: number, p: any) => sum + p.progress,
                   0
-                ) / (actionPlans?.length || 1)
+                ) || 0) / (actionPlans?.length || 1)
               ) || 0}
               %
             </div>
@@ -243,7 +243,7 @@ export default function ActionPlansPage() {
         ) : filteredPlans.length > 0 ? (
           <List
             dataSource={filteredPlans}
-            renderItem={(plan: ActionPlan) => (
+            renderItem={(plan: any) => (
               <List.Item
                 actions={[
                   <Button

@@ -239,13 +239,11 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="container mx-auto space-y-6">
+      <div className="flex md:flex-row flex-col md:items-center justify-between mb-6 gap-4">
         <div className="flex items-center gap-3">
-          <CalendarIcon className="h-8 w-8 text-indigo-600" />
-          <Title level={2} className="!mb-0">
-            Calendar & Scheduling
-          </Title>
+          <CalendarIcon className="h-8 w-8 text-purple-600" />
+          <h1 className="text-2xl font-bold">Calendar & Scheduling</h1>
         </div>
         <Button
           type="primary"
@@ -257,7 +255,7 @@ export default function CalendarPage() {
       </div>
 
       {/* Quick Booking Actions */}
-      <Card>
+      <div className="bg-white rounded-lg md:p-4 md:border border-purple-200 md:shadow-sm shadow-purple-100">
         <div className="mb-4">
           <Title level={4} className="flex items-center gap-2 !mb-2">
             <CalendarIcon className="h-5 w-5" />
@@ -286,7 +284,7 @@ export default function CalendarPage() {
             </div>
             <Button
               type="primary"
-              className="w-full bg-purple-600 hover:bg-purple-700 border-purple-600"
+              className="w-full"
               onClick={() => {
                 setBookingType("nura");
                 setShowBookingModal(true);
@@ -312,8 +310,8 @@ export default function CalendarPage() {
               </div>
             </div>
             <Button
-              type="default"
-              className="w-full border-blue-300 text-blue-700 hover:border-blue-400"
+              variant="outlined"
+              className="w-full"
               onClick={() => {
                 setBookingType("safety_network");
                 setShowBookingModal(true);
@@ -323,50 +321,46 @@ export default function CalendarPage() {
             </Button>
           </div>
         </div>
-      </Card>
+      </div>
 
-      {/* Calendar Component */}
-      <Card>
-        <div className="calendar">
-          <CalendarHeader
-            viewMonth={viewMonth}
-            viewYear={viewYear}
-            onPrevMonth={handlePrevMonth}
-            onNextMonth={handleNextMonth}
-            onToday={handleToday}
-          />
+      <div className="w-full h-fit mt-6">
+        <CalendarHeader
+          viewMonth={viewMonth}
+          viewYear={viewYear}
+          onPrevMonth={handlePrevMonth}
+          onNextMonth={handleNextMonth}
+          onToday={handleToday}
+        />
 
-          <div className="grid grid-cols-7 gap-1 mt-4">
+        <div>
+          <div className="md:grid md:grid-cols-7 md:gap-4 flex flex-col gap-4 mb-4">
             {WEEKDAYS.map((day) => (
               <div
                 key={day}
-                className="p-2 text-center text-xs font-medium text-gray-500 bg-gray-50"
+                className="text-center hidden md:block text-sm font-medium text-gray-500 py-2"
               >
                 {day}
               </div>
             ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-1">
-            {calendarMatrix.flat().map((date, index) => {
-              if (!date) {
-                return <div key={index} className="min-h-32"></div>;
-              }
-              return (
-                <CalendarDay
-                  key={index}
-                  date={date}
-                  isCurrentMonth={date.month() === viewMonth}
-                  reflections={
-                    calendarViewReflections[date.format("YYYY-MM-DD")] || []
-                  }
-                  user={user as any}
-                />
-              );
-            })}
+            {calendarMatrix.flatMap((week, weekIndex) =>
+              week.map((day, dayIndex) => {
+                if (!day) return null;
+                const dateKey = day.format("YYYY-MM-DD");
+                const dayReflections = calendarViewReflections[dateKey] || [];
+                return (
+                  <CalendarDay
+                    user={user as any}
+                    key={`${weekIndex}-${dayIndex}`}
+                    date={day}
+                    isCurrentMonth={day.month() === viewMonth}
+                    reflections={dayReflections}
+                  />
+                );
+              })
+            )}
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Event Creation Modal */}
       <Modal

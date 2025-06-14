@@ -8,6 +8,7 @@ import React, {
   ReactNode,
 } from "react";
 import { getCurrentUser, logout as logoutAction } from "@/utils/login-actions";
+import { useRouter } from "next/navigation";
 
 interface User {
   id: string;
@@ -47,6 +48,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUserState] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+
+  const { push } = useRouter();
 
   const setUser = (userData: User | null) => {
     setUserState(userData);
@@ -94,6 +97,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       await logoutAction();
       setUser(null);
       setError(null);
+      push("/login");
     } catch (e: any) {
       console.error("Error during logout:", e);
       // Clear local state even if logout fails
@@ -109,8 +113,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const localUser = localStorage.getItem("user");
 
         if (token) {
-          // Try to get fresh user data from backend
-          await refreshUser();
+          try {
+            // Try to get fresh user data from backend
+            await refreshUser();
+          } catch (error) {
+            // If refresh fails, clear everything and redirect
+            localStorage.removeItem("auth_token");
+            localStorage.removeItem("refresh_token");
+            localStorage.removeItem("user");
+            setIsLoading(false);
+            push("/login");
+          }
         } else if (localUser) {
           try {
             // Parse and set local user data, but still verify with backend
@@ -118,14 +131,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setUserState(parsedUser);
             setIsLoading(false);
             // Verify in background
-            setTimeout(refreshUser, 100);
+            setTimeout(async () => {
+              try {
+                await refreshUser();
+              } catch (error) {
+                // If verification fails, clear everything and redirect
+                localStorage.removeItem("auth_token");
+                localStorage.removeItem("refresh_token");
+                localStorage.removeItem("user");
+                setUserState(null);
+                push("/login");
+              }
+            }, 100);
           } catch {
-            // Invalid local data, clear it
+            // Invalid local data, clear it and redirect
             localStorage.removeItem("user");
             setIsLoading(false);
+            push("/login");
           }
         } else {
+          // No token or local user data, redirect to login
           setIsLoading(false);
+          push("/login");
         }
       } else {
         setIsLoading(false);

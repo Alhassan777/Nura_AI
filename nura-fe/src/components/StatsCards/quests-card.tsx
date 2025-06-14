@@ -7,12 +7,16 @@ import AnimatedNumber from "./AnimatedNumber";
 export const QuestsCard = ({ isCollapsed }: { isCollapsed: boolean }) => {
   const { data: quests, isLoading } = useQuests();
 
+  const allQuests = [
+    ...(quests?.systemQuests || []),
+    ...(quests?.userQuests || []),
+  ];
+
   if (isLoading) return <SkeletonCard isCollapsed={isCollapsed} />;
 
   const completedQuests =
-    quests?.systemQuests?.filter((quest) => quest.progress.completed).length ||
-    0;
-  const totalQuests = quests?.systemQuests?.length || 0;
+    allQuests?.filter((quest) => quest.progress.completed).length || 0;
+  const totalQuests = allQuests?.length || 0;
 
   return (
     <motion.div

@@ -12,16 +12,16 @@ export default function ChatPage() {
   const router = useRouter();
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div>
       {/* Header */}
-      <div className="text-center space-y-4">
-        <div className="flex items-center justify-center gap-3">
-          <Heart className="h-10 w-10 text-purple-600" />
+      <div>
+        <div className="flex items-center gap-2">
           <Title level={1} className="!mb-0">
             Connect with Nura
           </Title>
+          <Heart className="h-10 w-10 text-purple-600" />
         </div>
-        <Paragraph className="text-lg text-gray-600 max-w-2xl mx-auto">
+        <Paragraph className="text-lg !text-gray-400 max-w-2xl">
           Choose how you'd like to communicate with Nura today. Whether through
           thoughtful text conversations or intimate voice calls, Nura is here to
           support your mental wellness journey.
@@ -31,7 +31,7 @@ export default function ChatPage() {
       {/* Communication Options */}
       <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
         {/* Text Chat Option */}
-        <Card className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+        <Card>
           <CardContent className="p-8 text-center space-y-6">
             <div className="p-6 bg-blue-100 rounded-full w-24 h-24 mx-auto flex items-center justify-center">
               <MessageCircle className="h-12 w-12 text-blue-600" />
@@ -64,11 +64,11 @@ export default function ChatPage() {
             </div>
 
             <Button
-              type="primary"
+              type="default"
               size="large"
               icon={<MessageCircle className="h-5 w-5" />}
               onClick={() => router.push("/text-chat")}
-              className="w-full h-12 text-base bg-blue-600 hover:bg-blue-700"
+              className="w-full h-12 text-base"
             >
               Start Text Conversation
             </Button>
@@ -76,7 +76,7 @@ export default function ChatPage() {
         </Card>
 
         {/* Voice Chat Option */}
-        <Card className="hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+        <Card>
           <CardContent className="p-8 text-center space-y-6">
             <div className="p-6 bg-purple-100 rounded-full w-24 h-24 mx-auto flex items-center justify-center">
               <Phone className="h-12 w-12 text-purple-600" />
@@ -113,7 +113,7 @@ export default function ChatPage() {
               size="large"
               icon={<Phone className="h-5 w-5" />}
               onClick={() => router.push("/voice-chat")}
-              className="w-full h-12 text-base bg-purple-600 hover:bg-purple-700"
+              className="w-full h-12 text-base"
             >
               Start Voice Call
             </Button>
@@ -122,7 +122,7 @@ export default function ChatPage() {
       </div>
 
       {/* Quick Actions */}
-      <Card className="max-w-2xl mx-auto">
+      <Card className="mt-4">
         <CardHeader>
           <CardTitle className="text-center">Need Immediate Support?</CardTitle>
         </CardHeader>

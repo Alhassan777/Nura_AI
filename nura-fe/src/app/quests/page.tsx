@@ -4,81 +4,115 @@ import React, { useState } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Trophy, Star, BookOpen, Plus, Check } from "lucide-react";
 import {
-  Flame,
-  Trophy,
-  Star,
-  Calendar,
-  BookOpen,
-  MessageSquare,
-  Plus,
-  X,
-} from "lucide-react";
-import { useQuests } from "@/services/hooks/use-quests";
-import { Quest } from "../api/gamification/quests/utils";
+  useCreateQuest,
+  useQuests,
+  useCompleteQuest,
+} from "@/services/hooks/use-quests";
+import { CreateQuestType, Quest } from "../api/gamification/quests/utils";
 import { Button, Form, Input, Select, InputNumber, Modal, message } from "antd";
+import { cn } from "@/lib/utils";
 
 const { TextArea } = Input;
 const { Option } = Select;
 
-interface CreateQuestForm {
-  title: string;
-  description: string;
-  time_frame: "daily" | "weekly" | "monthly" | "one_time";
-  frequency: number;
-  xp_reward: number;
-}
-
 const QuestCard = ({ quest }: { quest: Quest }) => {
-  const progressPercent = ((quest.progress.count ?? 0) / quest.frequency) * 100;
-  const isCompleted = (quest.progress.count ?? 0) >= quest.frequency;
+  const { mutateAsync: completeQuest, isPending: isCompleting } =
+    useCompleteQuest();
+
+  const progressPercent =
+    ((quest?.progress?.count ?? 0) / quest?.frequency) * 100;
+  const isCompleted =
+    quest.type === "system"
+      ? (quest?.progress?.count ?? 0) >= quest?.frequency
+      : quest?.progress?.status === "COMPLETED";
+
+  const handleCompleteQuest = async () => {
+    try {
+      const result = await completeQuest(quest.id);
+      if (result.completed) {
+        message.success("Quest completed successfully! XP awarded!");
+      } else {
+        message.success(
+          `Progress updated! ${result.progress}/${result.total} completed`
+        );
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.error || "Failed to complete quest");
+    }
+  };
 
   return (
     <Card
-      className={`p-4 shadow-sm border transition-all duration-200 ${
-        isCompleted ? "bg-green-50 border-green-200" : "hover:shadow-md"
+      className={`bg-white backdrop-blur-3xl p-4 shadow-xs border-2 transition-all duration-200 ${
+        isCompleted ? " border-green-500" : "hover:shadow-md border-purple-500"
       }`}
     >
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-4 h-full">
         <div className="h-10 w-10 rounded-full flex items-center justify-center bg-gray-100 border border-gray-200">
-          {quest.key === "reflections" ? <BookOpen /> : <Trophy />}
+          {quest.key === "reflections" ? (
+            <BookOpen className={cn(isCompleted && "text-green-500")} />
+          ) : (
+            <Trophy className={cn(isCompleted && "text-green-500")} />
+          )}
         </div>
 
-        <div className="flex-1">
-          <div className="flex justify-between items-start mb-1">
-            <h3 className="font-medium text-gray-900">{quest.title}</h3>
-            <div className="flex items-center gap-2">
-              <Badge
-                variant="outline"
-                className="bg-purple-50 text-purple-700 border-purple-200 font-semibold"
-              >
-                {quest.xp_reward} XP
-              </Badge>
-              {quest.type === "user" && (
+        <div className="flex-1 h-full flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-start mb-1">
+              <h3 className="font-medium text-gray-900">{quest.title}</h3>
+              <div className="flex items-center gap-2">
                 <Badge
                   variant="outline"
-                  className="bg-blue-50 text-blue-700 border-blue-200 font-semibold"
+                  className={cn(
+                    "bg-purple-50 text-purple-700 border-purple-200 font-semibold",
+                    isCompleted && "!text-green-700 border-green-500"
+                  )}
                 >
-                  Custom
+                  {quest.xp_reward} XP
                 </Badge>
-              )}
+                {quest.type === "user" && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "bg-purple-50 text-purple-700 border-purple-200 font-semibold",
+                      isCompleted && "!text-green-700 border-green-500"
+                    )}
+                  >
+                    Custom
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-2">
+              {quest?.description ?? "No description"}
+            </p>
+
+            <div className="space-y-1">
+              <Progress value={progressPercent} className={`h-2`} />
+              <div className="flex justify-between items-center text-xs text-gray-500">
+                <span>
+                  {quest.progress.count || 0} of {quest.frequency} completed
+                </span>
+                <span>{progressPercent.toFixed(0)}%</span>
+              </div>
             </div>
           </div>
-
-          <p className="text-sm text-gray-600 mb-2">{quest.description}</p>
-
-          <div className="space-y-1">
-            <Progress
-              value={progressPercent}
-              className={`h-2 ${isCompleted ? "bg-green-200" : "bg-gray-200"}`}
-            />
-            <div className="flex justify-between items-center text-xs text-gray-500">
-              <span>
-                {quest.progress.count} of {quest.frequency} completed
-              </span>
-              <span>{progressPercent.toFixed(0)}%</span>
+          {quest.type === "user" && !isCompleted && (
+            <div className="flex justify-end mt-2">
+              <Button
+                type="primary"
+                size="small"
+                icon={<Check className="h-3 w-3" />}
+                onClick={handleCompleteQuest}
+                loading={isCompleting}
+              >
+                {quest.frequency === 1 ? "Mark Complete" : "Add Progress"}
+              </Button>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </Card>
@@ -88,18 +122,22 @@ const QuestCard = ({ quest }: { quest: Quest }) => {
 const CreateQuestModal = ({
   isOpen,
   onClose,
-  onSubmit,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (values: CreateQuestForm) => void;
 }) => {
   const [form] = Form.useForm();
-
-  const handleSubmit = (values: CreateQuestForm) => {
-    onSubmit(values);
-    form.resetFields();
-    onClose();
+  const { mutateAsync: createQuest, isPending } = useCreateQuest();
+  const handleSubmit = async (values: CreateQuestType) => {
+    try {
+      await createQuest(values);
+      message.success("Quest created successfully!");
+      form.resetFields();
+      onClose();
+    } catch (error) {
+      message.error("Failed to create quest");
+      console.error(error);
+    }
   };
 
   return (
@@ -131,7 +169,7 @@ const CreateQuestModal = ({
         <Form.Item
           name="description"
           label="Description"
-          rules={[{ required: true, message: "Please enter a description" }]}
+          rules={[{ required: false, message: "Please enter a description" }]}
         >
           <TextArea
             rows={3}
@@ -183,7 +221,7 @@ const CreateQuestModal = ({
 
         <div className="flex justify-end gap-2 mt-6">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="primary" htmlType="submit">
+          <Button type="primary" htmlType="submit" loading={isPending}>
             Create Quest
           </Button>
         </div>
@@ -195,18 +233,6 @@ const CreateQuestModal = ({
 export default function QuestsPage() {
   const { data: quests, isLoading, isError } = useQuests();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-
-  const handleCreateQuest = async (values: CreateQuestForm) => {
-    try {
-      // TODO: Implement API call to create user quest
-      console.log("Creating quest:", values);
-      message.success("Quest created successfully!");
-      // You would typically call a mutation here to create the quest
-    } catch (error) {
-      console.error("Error creating quest:", error);
-      message.error("Failed to create quest");
-    }
-  };
 
   if (isLoading) {
     return (
@@ -220,7 +246,7 @@ export default function QuestsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-5xl">
+    <div className="container mx-auto px-4 py-8">
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Quests</h1>
@@ -241,7 +267,7 @@ export default function QuestsPage() {
               <div className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium">
                 Level 3
               </div>
-              <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+              <div className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm font-medium">
                 1250 XP
               </div>
             </div>
@@ -322,7 +348,6 @@ export default function QuestsPage() {
         <CreateQuestModal
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
-          onSubmit={handleCreateQuest}
         />
       </div>
     </div>

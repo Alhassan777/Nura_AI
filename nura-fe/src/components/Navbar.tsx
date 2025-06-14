@@ -23,6 +23,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import StatsCards from "@/components/StatsCards";
 import LevelProgress from "@/components/LevelProgress";
 import { useAuth } from "@/contexts/AuthContext";
+import { getLevelFromXp, getXpForLevel } from "@/utils/level-system";
 
 export default function Sidebar() {
   const { user, logout: authLogout, isLoading } = useAuth();
@@ -265,9 +266,9 @@ export default function Sidebar() {
           {/* Stats Cards */}
           <StatsCards isCollapsed={isCollapsed} />
           <LevelProgress
-            level={12}
-            currentXP={2450}
-            nextLevelXP={5000}
+            level={getLevelFromXp(user?.xp || 0)}
+            currentXP={user?.xp || 0}
+            nextLevelXP={getXpForLevel(getLevelFromXp(user?.xp || 0) + 1)}
             isCollapsed={isCollapsed}
           />
         </div>

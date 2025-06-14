@@ -1,18 +1,21 @@
 import { createClient } from "@/utils/supabase/server";
 import { SupabaseClient } from "@supabase/supabase-js";
+import { awardXp } from "../utils/award-xp";
 
 export type Quest = {
   id: string;
   key: string;
   frequency: number;
   title: string;
-  description: string;
+  description?: string;
   xp_reward: number;
   type: "system" | "user";
-  time_frame: "daily" | "weekly" | "monthly";
+  time_frame: "daily" | "weekly" | "monthly" | "one_time";
   progress: QuestProgress;
   created_at: string;
 };
+
+export type CreateQuestType = Omit<Quest, "id" | "key" | "progress" | "created_at" | "type">;
 
 export type QuestProgress = {
   count?: number;
@@ -21,9 +24,6 @@ export type QuestProgress = {
   completedAt?: string | null;
 };
 
-//
-// 1. Separate function to handle progress for a single system‐quest key
-//
 async function getQuestProgress(
   supabase: SupabaseClient,
   quest: Quest,
@@ -50,55 +50,33 @@ async function getQuestProgress(
       const count = totalReflections ?? 0;
       const completed = count >= quest.frequency;
 
-      // if (completed) {
-      //   // Upsert a “completed today” row into user_quests
-      //   const todayDateString = today.toISOString().slice(0, 10); // “YYYY-MM-DD”
-      //   const { error: upsertError } = await supabase
-      //     .from("user_quests")
-      //     .upsert(
-      //       {
-      //         user_id: userId,
-      //         quest_id: quest.id,
-      //         quest_date: todayDateString,
-      //         status: "COMPLETED",
-      //         completed_at: new Date().toISOString(),
-      //         started_at: new Date().toISOString(),
-      //         updated_at: new Date().toISOString(),
-      //       },
-      //       { onConflict: ["user_id", "quest_id", "quest_date"] }
-      //     );
-      //   if (upsertError) {
-      //     throw new Error(upsertError.message);
-      //   }
-      // }
 
       return { count, completed };
     }
 
-    // If you add more system‐level keys (e.g. “friends”, “mood_tags”, etc.), handle them here:
-    // case "friends": {
-    //   // Example: count how many “friend” rows today, then upsert user_quests…
-    //   break;
-    // }
 
     default: {
-      // For any other system quest, look up user_quests directly
       const { data: uq, error: uqError } = await supabase
         .from("user_quests")
-        .select("status, completed_at")
+        .select("status, completed_at, count")
         .eq("user_id", userId)
         .eq("quest_id", quest.id)
         .single();
 
       if (uqError && uqError.code !== "PGRST116") {
-        // PGRST116 = no rows found; ignore that
         throw new Error(uqError.message);
       }
 
       if (!uq) {
-        return { status: "NOT_STARTED" };
+        return { status: "NOT_STARTED", count: 0, completed: false };
       }
-      return { status: uq.status, completedAt: uq.completed_at };
+
+      return {
+        status: uq.status,
+        completedAt: uq.completed_at,
+        count: uq.count || 0,
+        completed: uq.status === "COMPLETED"
+      };
     }
   }
 }
@@ -123,10 +101,10 @@ export const getUserQuests = async () => {
     throw new Error(systemQuestsError.message);
   }
 
-  const enhancedQuests: Quest[] = [];
+  const enhancedSystemQuests: Quest[] = [];
   for (const quest of systemQuests ?? []) {
     const progress = await getQuestProgress(supabase, quest as Quest, userId);
-    enhancedQuests.push({ ...quest, progress });
+    enhancedSystemQuests.push({ ...quest, progress });
   }
 
   // Fetch custom (user) quests for this user
@@ -139,5 +117,130 @@ export const getUserQuests = async () => {
     throw new Error(userQuestsError.message);
   }
 
-  return { systemQuests: enhancedQuests, userQuests };
+  const enhancedUserQuests: Quest[] = [];
+  for (const quest of userQuests ?? []) {
+    const progress = await getQuestProgress(supabase, quest as Quest, userId);
+    enhancedUserQuests.push({ ...quest, progress });
+  }
+
+  return {
+    systemQuests: enhancedSystemQuests,
+    userQuests: enhancedUserQuests,
+  };
+};
+
+export const createQuest = async (quest: CreateQuestType) => {
+  const supabase = await createClient();
+  const { data: user, error: userError } = await supabase.auth.getUser();
+  if (userError || !user?.user) {
+    throw new Error(userError?.message || "User not authenticated");
+  }
+  const { data, error } = await supabase.from("quests").insert({
+    ...quest,
+    user_id: user.user.id,
+    type: "user",
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data;
+};
+
+export const completeQuest = async (questId: string) => {
+  const supabase = await createClient();
+  const { data: user, error: userError } = await supabase.auth.getUser();
+  if (userError || !user?.user) {
+    throw new Error(userError?.message || "User not authenticated");
+  }
+  const userId = user.user.id;
+
+  // Get the quest details to check XP reward and frequency
+  const { data: quest, error: questError } = await supabase
+    .from("quests")
+    .select("xp_reward, type, frequency")
+    .eq("id", questId)
+    .eq("type", "user")
+    .eq("user_id", userId)
+    .single();
+
+  if (questError) {
+    throw new Error(questError.message);
+  }
+
+  if (!quest) {
+    throw new Error("Quest not found or not authorized");
+  }
+
+  // Check existing progress
+  const { data: existingProgress, error: existingError } = await supabase
+    .from("user_quests")
+    .select("id, count, status")
+    .eq("user_id", userId)
+    .eq("quest_id", questId)
+    .single();
+
+  if (existingError && existingError.code !== "PGRST116") {
+    throw new Error(existingError.message);
+  }
+
+  let newCount = 1;
+  let newStatus = "IN_PROGRESS";
+
+  if (existingProgress) {
+    // Quest entry already exists, increment count
+    newCount = (existingProgress.count || 0) + 1;
+
+    if (existingProgress.status === "COMPLETED") {
+      throw new Error("Quest already completed");
+    }
+  }
+
+  // Check if quest will be completed with this action
+  if (newCount >= quest.frequency) {
+    newStatus = "COMPLETED";
+  }
+
+  if (existingProgress) {
+    // Update existing entry
+    const { error: updateError } = await supabase
+      .from("user_quests")
+      .update({
+        count: newCount,
+        status: newStatus,
+        completed_at: newStatus === "COMPLETED" ? new Date().toISOString() : null,
+      })
+      .eq("user_id", userId)
+      .eq("quest_id", questId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+  } else {
+    // Create new entry
+    const { error: insertError } = await supabase
+      .from("user_quests")
+      .insert({
+        user_id: userId,
+        quest_id: questId,
+        status: newStatus,
+        count: newCount,
+        completed_at: newStatus === "COMPLETED" ? new Date().toISOString() : null,
+      });
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+  }
+
+  // Award XP only if quest is completed
+  if (newStatus === "COMPLETED") {
+    await awardXp(userId, quest.xp_reward, "quest");
+  }
+
+  return {
+    success: true,
+    completed: newStatus === "COMPLETED",
+    progress: newCount,
+    total: quest.frequency
+  };
 };
