@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { addReflection, deleteReflection, getReflections, updateReflection } from "../apis/gamification";
 import { DefaultReflection } from "@/constants/default-reflection";
+import { useInvalidateQueries } from "../apis/invalidate-queries";
 
 
 export const useGetReflections = () => {
@@ -11,8 +12,12 @@ export const useGetReflections = () => {
 };
 
 export const useAddReflection = () => {
+  const { invalidateQuestsQuery } = useInvalidateQueries();
   return useMutation({
     mutationFn: addReflection,
+    onSuccess: () => {
+      invalidateQuestsQuery();
+    },
   });
 };
 
