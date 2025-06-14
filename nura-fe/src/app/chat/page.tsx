@@ -12,7 +12,7 @@ export default function ChatPage() {
   const router = useRouter();
 
   return (
-    <div>
+    <div className="w-full">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2">
@@ -29,7 +29,7 @@ export default function ChatPage() {
       </div>
 
       {/* Communication Options */}
-      <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+      <div className="grid md:grid-cols-2 gap-8  mx-auto">
         {/* Text Chat Option */}
         <Card>
           <CardContent className="p-8 text-center space-y-6">

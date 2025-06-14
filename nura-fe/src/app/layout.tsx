@@ -43,7 +43,7 @@ export default async function RootLayout({
             <main className="h-fit flex md:flex-row flex-col relative">
               <MobileTopNav />
               <Navbar />
-              <div className="my-4 w-full px-3 sm:px-6 lg:px-8 flex-1 flex justify-center md:mb-0 mb-16 h-full md:min-h-screen min-h-fit">
+              <div className="py-5 w-full px-3 sm:px-6 lg:px-8 flex-1 flex justify-center md:mb-0 mb-16 h-full md:min-h-screen min-h-fit">
                 {children}
               </div>
             </main>

@@ -246,7 +246,7 @@ export default function QuestsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="w-full">
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Quests</h1>

@@ -42,14 +42,14 @@ export const getLevelFromXp = (totalXp: number): number => {
  * @param totalXp The user's total XP
  * @returns Object containing current level, XP progress, and XP required for next level
  */
-export const getLevelProgress = (totalXp: number, currentXP: number) => {
+export const getLevelProgress = (totalXp: number) => {
   const currentLevel = getLevelFromXp(totalXp);
   const xpForCurrentLevel = getXpForLevel(currentLevel);
   const xpForNextLevel = getXpForLevel(currentLevel + 1);
   const xpInCurrentLevel = totalXp - xpForCurrentLevel;
   const xpNeededForNextLevel = xpForNextLevel - xpForCurrentLevel;
   const nextLevelXP = getXpForLevel(getLevelFromXp(totalXp) + 1)
-  const progressPercentage = Math.floor((currentXP / nextLevelXP) * 100);
+  const progressPercentage = Math.floor((totalXp / nextLevelXP) * 100);
 
 
 

@@ -168,7 +168,7 @@ export default function BadgesPage() {
   }
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="w-full">
       <div className="mb-10">
         <Title level={2} className="!text-3xl !mb-2">
           Your Badges
