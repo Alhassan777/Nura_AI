@@ -16,13 +16,28 @@ import {
 } from "lucide-react";
 import { Chat } from "@/components/chat-components/chat";
 import { MemoryManagement } from "@/components/memory/MemoryManagement";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const { Title, Paragraph } = Typography;
 
 export default function TextChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("chat");
+
+  // Get the chat mode from URL parameters
+  const chatMode =
+    (searchParams.get("mode") as "general" | "action_plan" | "visualization") ||
+    "general";
+
+  // Mode display configuration
+  const modeConfig = {
+    general: { name: "General Support", icon: Heart, color: "blue" },
+    action_plan: { name: "Action Planning", icon: Target, color: "purple" },
+    visualization: { name: "Creative Expression", icon: Brain, color: "green" },
+  };
+
+  const currentMode = modeConfig[chatMode];
 
   const tabItems = [
     {
@@ -33,7 +48,7 @@ export default function TextChatPage() {
           Chat
         </Space>
       ),
-      children: <Chat mode="production" />,
+      children: <Chat mode="production" chatMode={chatMode} />,
     },
     {
       key: "short-term",
@@ -83,7 +98,15 @@ export default function TextChatPage() {
               </Button>
               <MessageCircle className="h-6 w-6 text-blue-600" />
               <div>
-                <CardTitle className="!mb-1">Chat with Nura</CardTitle>
+                <CardTitle className="!mb-1 flex items-center gap-2">
+                  Chat with Nura
+                  <span
+                    className={`text-sm px-2 py-1 rounded-full bg-${currentMode.color}-100 text-${currentMode.color}-700`}
+                  >
+                    <currentMode.icon className="h-3 w-3 inline mr-1" />
+                    {currentMode.name}
+                  </span>
+                </CardTitle>
                 <Paragraph className="text-sm text-gray-600 !mb-0 flex items-center gap-2">
                   <Shield className="h-4 w-4 text-green-600" />
                   Private conversation with memory management

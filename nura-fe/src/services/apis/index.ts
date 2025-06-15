@@ -7,11 +7,11 @@ export type SendMessageBody = Partial<{
   method?: string;
   body?: any;
   conversation_id?: string;
+  chat_mode?: "general" | "action_plan" | "visualization";
 }>;
 
 export const axiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL,
-
 });
 
 // Add request interceptor to include auth token
@@ -52,7 +52,22 @@ export const getHealthStatus = async () => {
 };
 
 export const sendMessage = async (body: SendMessageBody) => {
-  // Transform the request to match the assistant API format (no user_id needed - comes from JWT)
+  // Use the new multi-modal chat API if chat_mode is specified
+  if (body.chat_mode) {
+    const multiModalRequest = {
+      message: body.message,
+      mode: body.chat_mode,
+      conversation_id: body.conversation_id,
+    };
+
+    const response = await axiosInstance.post(
+      "/chat-v2/messages/fast",
+      multiModalRequest
+    );
+    return response.data;
+  }
+
+  // Fallback to original assistant API for backward compatibility
   const assistantRequest = {
     message: body.message,
     memory_context: body.include_memory ? {} : null,

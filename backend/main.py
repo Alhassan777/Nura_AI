@@ -24,12 +24,18 @@ from services.voice.api import router as voice_router
 from services.chat.api import (
     router as chat_router,
 )  # Full chat service with database integration
+from services.chat.multi_modal_api import (
+    router as multi_modal_chat_router,
+)  # Multi-modal chat service
 from services.privacy.api import (
     router as privacy_router,
 )  # Privacy and PII detection service
 from services.assistant.api import (
     router as assistant_router,
 )  # Mental health assistant service
+from services.action_plans.api import (
+    router as action_plans_router,
+)  # AI-powered action plans service
 from services.audit.api import router as audit_router  # Audit logging service
 from services.scheduling.api import (
     router as scheduling_router,
@@ -80,8 +86,10 @@ app.include_router(
 # Include service routers
 app.include_router(voice_router)
 app.include_router(chat_router)
+app.include_router(multi_modal_chat_router)
 app.include_router(privacy_router)
 app.include_router(assistant_router)
+app.include_router(action_plans_router)
 app.include_router(audit_router)
 app.include_router(scheduling_router)
 app.include_router(safety_network_router)
@@ -174,8 +182,10 @@ async def root():
             "health": "/health",
             "memory": "/memory (includes search & push for Vapi)",
             "chat": "/chat",
+            "chat_v2": "/chat-v2 (multi-modal chat with ultra-fast responses)",
             "privacy": "/privacy",
             "assistant": "/assistant",
+            "action_plans": "/action-plans (AI-powered action plans)",
             "audit": "/audit",
             "image_generation": "/image-generation",
             "voice": "/voice",
@@ -197,6 +207,7 @@ async def api_info():
             "/health",
             "/memory",
             "/chat",
+            "/chat-v2",
             "/privacy",
             "/assistant",
             "/audit",

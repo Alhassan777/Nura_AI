@@ -112,22 +112,23 @@ class EmotionVisualizer:
 
             # Step 7: Store generated image in the database
             try:
-                with get_db() as db:
-                    generated_image = GeneratedImage(
-                        user_id=user_id,
-                        prompt=visual_prompt,
-                        image_data=image_result["image_data"],
-                        image_format=image_result.get("image_format", "png"),
-                        name=image_name,
-                        image_metadata={
-                            "emotion_type": emotion_type,
-                            "generation_params": generation_params,
-                            "context_analysis": context["input_analysis"],
-                            "model_used": image_result["model"],
-                        },
-                    )
-                    db.add(generated_image)
-                    db.commit()
+                db = next(get_db())
+                generated_image = GeneratedImage(
+                    user_id=user_id,
+                    prompt=visual_prompt,
+                    image_data=image_result["image_data"],
+                    image_format=image_result.get("image_format", "png"),
+                    name=image_name,
+                    image_metadata={
+                        "emotion_type": emotion_type,
+                        "generation_params": generation_params,
+                        "context_analysis": context["input_analysis"],
+                        "model_used": image_result["model"],
+                    },
+                )
+                db.add(generated_image)
+                db.commit()
+                db.close()
             except Exception as db_exc:
                 # Log but do not fail the main flow
                 print(f"[WARN] Failed to store generated image in DB: {db_exc}")

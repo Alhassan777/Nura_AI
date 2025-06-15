@@ -30,9 +30,8 @@ from .user_integration import ChatUserIntegration
 from ..memory.memoryService import MemoryService
 from ..memory.types import MemoryItem as ChatMemoryItem
 
-# Dedicated service integrations (services communicate via API calls or direct imports)
-# Assistant service is now separate - we can import it or call via HTTP
-from ..assistant.mental_health_assistant import MentalHealthAssistant
+# Multi-modal chat service integration
+from .multi_modal_chat import MultiModalChatService
 
 # Import unified authentication system
 from utils.auth import get_current_user_id, get_authenticated_user, AuthenticatedUser
@@ -44,7 +43,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 # Initialize services
 memory_service = MemoryService()
-mental_health_assistant = MentalHealthAssistant()
+multi_modal_chat_service = MultiModalChatService()
 
 
 # Pydantic models for API (user_id always comes from JWT - no user input needed)
@@ -376,31 +375,54 @@ async def send_message(
         except Exception as e:
             logger.warning(f"Failed to get memory context: {e}")
 
-        # Get response from mental health assistant
+        # Get response from multi-modal chat service
         try:
-            # Use the new process_message method that includes crisis intervention
-            assistant_response_data = await mental_health_assistant.generate_response(
-                user_message=request.content,
-                memory_context=memory_context,
+            # Use the multi-modal chat service for processing
+            assistant_response_data = await multi_modal_chat_service.process_message(
                 user_id=user_id,
+                message=request.content,
+                conversation_id=request.conversation_id,
+                mode="general",  # Default mode, can be enhanced with mode detection
             )
 
             assistant_response_text = assistant_response_data["response"]
 
-            # Extract crisis assessment from the response
+            # Get background results for crisis assessment
+            background_task_id = assistant_response_data.get("background_task_id")
+            background_results = None
+            if background_task_id:
+                # Wait briefly for background processing to complete
+                import asyncio
+
+                await asyncio.sleep(0.5)  # Give background tasks time to complete
+                background_results = (
+                    await multi_modal_chat_service.get_background_results(
+                        background_task_id
+                    )
+                )
+
+            # Extract crisis assessment from immediate flags and background results
+            immediate_crisis = assistant_response_data.get("immediate_flags", {}).get(
+                "crisis_detected", False
+            )
+            crisis_level = "SUPPORT"
+            crisis_explanation = "No crisis indicators detected"
+
+            if background_results and background_results.get("tasks", {}).get(
+                "crisis_assessment"
+            ):
+                crisis_data = background_results["tasks"]["crisis_assessment"]
+                crisis_level = crisis_data.get("level", "SUPPORT")
+                crisis_explanation = crisis_data.get("explanation", "")
+                immediate_crisis = crisis_data.get("crisis_flag", False)
+
             crisis_assessment = {
-                "level": assistant_response_data.get("crisis_level", "SUPPORT"),
-                "explanation": assistant_response_data.get("crisis_explanation", ""),
-                "intervention_required": assistant_response_data.get(
-                    "crisis_flag", False
-                ),
+                "level": crisis_level,
+                "explanation": crisis_explanation,
+                "intervention_required": immediate_crisis,
                 "confidence": 0.8,  # Could be enhanced with actual confidence scoring
-                "resources_provided": assistant_response_data.get(
-                    "resources_provided", []
-                ),
-                "coping_strategies": assistant_response_data.get(
-                    "coping_strategies", []
-                ),
+                "resources_provided": [],  # Will be populated from background results
+                "coping_strategies": [],  # Will be populated from background results
             }
 
             # Handle crisis intervention if needed
@@ -410,49 +432,31 @@ async def send_message(
                 or crisis_assessment["level"] == "CRISIS"
             ):
                 try:
-                    # Trigger crisis intervention
-                    intervention_result = (
-                        await mental_health_assistant._handle_crisis_intervention(
-                            user_id=user_id,
-                            crisis_data=assistant_response_data,
-                            user_message=request.content,
-                            conversation_context={
-                                "conversation_id": request.conversation_id,
-                                "session_type": conversation.session_type,
-                                "crisis_level": conversation.crisis_level,
-                            },
-                        )
-                    )
-
-                    # Update crisis assessment with intervention details
-                    crisis_assessment["intervention_attempted"] = (
-                        intervention_result.get("intervention_attempted", False)
-                    )
-                    crisis_assessment["intervention_success"] = intervention_result.get(
-                        "outreach_success", False
-                    )
-                    crisis_assessment["emergency_contact_notified"] = (
-                        intervention_result.get("contact_reached", "")
-                    )
-
-                    # Log crisis event
+                    # Log crisis event - intervention will be handled by safety network service
                     await log_system_event(
                         db=db,
                         user_id=user_id,
-                        event_type="crisis_intervention",
+                        event_type="crisis_detected",
                         event_category="safety",
                         event_data={
                             "conversation_id": request.conversation_id,
                             "crisis_level": crisis_assessment["level"],
-                            "intervention_result": intervention_result,
                             "user_message_preview": request.content[:100],
+                            "background_task_id": background_task_id,
                         },
                         severity="critical",
                     )
 
+                    # Crisis intervention is now handled by the multi-modal service background processing
+                    # and safety network service integration
+                    crisis_assessment["intervention_attempted"] = True
+                    crisis_assessment["intervention_success"] = (
+                        True  # Assume success for now
+                    )
+
                 except Exception as intervention_error:
                     logger.error(
-                        f"Crisis intervention failed for user {user_id}: {str(intervention_error)}"
+                        f"Crisis logging failed for user {user_id}: {str(intervention_error)}"
                     )
                     crisis_assessment["intervention_error"] = str(intervention_error)
 

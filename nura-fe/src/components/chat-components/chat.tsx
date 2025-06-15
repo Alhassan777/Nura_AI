@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState, useRef, useEffect } from "react";
 import {
   Card,
   Empty,
@@ -13,6 +14,9 @@ import {
   Divider,
   Space,
   Tag,
+  List,
+  Tooltip,
+  message as antMessage,
 } from "antd";
 import {
   Bot,
@@ -26,8 +30,13 @@ import {
   Target,
   CheckCircle,
   Clock,
+  Mic,
+  MicOff,
+  Brain,
+  Heart,
+  TrendingUp,
+  ExternalLink,
 } from "lucide-react";
-import React, { ChangeEvent, useEffect, useRef, useState } from "react";
 import { ChatMessage } from "./types";
 import { getCrisisLevelBadgeStatus } from "./utils";
 import { useSendMessage } from "@/services/hooks";
@@ -37,6 +46,8 @@ import {
 } from "../CommunicationModeSelector";
 import { VoiceChat } from "../voice/VoiceChat";
 import { useQueryClient } from "@tanstack/react-query";
+import { axiosInstance } from "@/services/apis";
+import { useRouter } from "next/navigation";
 
 const { Text, Paragraph } = Typography;
 
@@ -46,6 +57,7 @@ interface ChatProps {
   showTestScenarios?: boolean;
   showVoiceToggle?: boolean;
   enableTabInterface?: boolean;
+  chatMode?: "general" | "action_plan" | "visualization";
 
   // Legacy props for backward compatibility
   activeTab?: string;
@@ -58,6 +70,7 @@ export const Chat = ({
   showTestScenarios = false,
   showVoiceToggle = false,
   enableTabInterface = false,
+  chatMode = "general",
   activeTab,
   loadMemories,
   conversationId,
@@ -73,9 +86,11 @@ export const Chat = ({
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [currentScheduleSuggestion, setCurrentScheduleSuggestion] =
     useState<any>(null);
+  const [isCreatingActionPlan, setIsCreatingActionPlan] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -114,7 +129,52 @@ export const Chat = ({
         message: messageText,
         include_memory: true,
         conversation_id: conversationId,
+        chat_mode: chatMode,
       });
+
+      // Handle multi-modal response format
+      if (response.background_task_id) {
+        // This is a multi-modal response - get background results
+        setTimeout(async () => {
+          try {
+            const backgroundResponse = await axiosInstance.get(
+              `/chat-v2/background-results/${response.background_task_id}`
+            );
+
+            const backgroundData = backgroundResponse.data;
+            const modeSpecific = backgroundData.tasks?.mode_specific;
+
+            // Check for action plan suggestions
+            if (modeSpecific?.should_suggest_action_plan) {
+              setCurrentActionPlan({
+                ...modeSpecific,
+                background_task_id: response.background_task_id,
+                action_plan_type:
+                  modeSpecific.action_plan?.plan_type || "hybrid",
+                extracted_action_plan: modeSpecific.action_plan || {},
+              });
+              setShowActionPlanModal(true);
+            }
+
+            // Check for crisis intervention
+            const crisisData = backgroundData.tasks?.crisis_assessment;
+            if (crisisData?.crisis_flag && crisisData?.level === "CRISIS") {
+              setCurrentCrisisData(crisisData);
+              setShowCrisisModal(true);
+            }
+
+            // Check for schedule suggestions
+            const scheduleData =
+              backgroundData.tasks?.mode_specific?.schedule_suggestion;
+            if (scheduleData?.should_suggest_scheduling) {
+              setCurrentScheduleSuggestion(scheduleData);
+              setShowScheduleModal(true);
+            }
+          } catch (error) {
+            console.error("Error getting background results:", error);
+          }
+        }, 2000); // Wait 2 seconds for background processing
+      }
 
       if (mode === "production") {
         // Update the existing message with bot response
@@ -124,13 +184,19 @@ export const Chat = ({
               ? {
                   ...msg,
                   response: response.response,
-                  crisis_level: response.crisis_level,
-                  crisis_explanation: response.crisis_explanation,
-                  resources_provided: response.resources_provided || [],
-                  coping_strategies: response.coping_strategies || [],
-                  memory_stored: response.memory_stored || false,
+                  crisis_level: response.immediate_flags?.crisis_detected
+                    ? "CRISIS"
+                    : "SUPPORT",
+                  crisis_explanation: response.immediate_flags?.crisis_detected
+                    ? "Crisis detected"
+                    : "",
+                  resources_provided: response.immediate_flags?.needs_resources
+                    ? ["Crisis resources"]
+                    : [],
+                  coping_strategies: [],
+                  memory_stored: true, // Assume memory will be stored in background
                   timestamp: response.timestamp,
-                  configuration_warning: response.configuration_warning,
+                  configuration_warning: false,
                   isUserMessage: false,
                 }
               : msg
@@ -142,35 +208,35 @@ export const Chat = ({
           id: messageId,
           message: messageText,
           response: response.response,
-          crisis_level: response.crisis_level,
-          crisis_explanation: response.crisis_explanation,
+          crisis_level: response.crisis_level || "SUPPORT",
+          crisis_explanation: response.crisis_explanation || "",
           resources_provided: response.resources_provided || [],
           coping_strategies: response.coping_strategies || [],
-          memory_stored: response.memory_stored,
+          memory_stored: response.memory_stored || false,
           timestamp: response.timestamp,
           configuration_warning: response.configuration_warning,
         };
         setMessages((prev) => [...prev, newMessage]);
-      }
 
-      // Handle enhanced assistant features
-      if (response.crisis_level === "CRISIS") {
-        setCurrentCrisisData(response);
-        setShowCrisisModal(true);
-      }
+        // Handle legacy response format
+        if (response.crisis_level === "CRISIS") {
+          setCurrentCrisisData(response);
+          setShowCrisisModal(true);
+        }
 
-      if (response.schedule_analysis?.should_suggest_scheduling) {
-        setCurrentScheduleSuggestion(response.schedule_analysis);
-        setShowScheduleModal(true);
-      }
+        if (response.schedule_analysis?.should_suggest_scheduling) {
+          setCurrentScheduleSuggestion(response.schedule_analysis);
+          setShowScheduleModal(true);
+        }
 
-      if (response.action_plan_analysis?.should_suggest_action_plan) {
-        setCurrentActionPlan(response.action_plan_analysis);
-        setShowActionPlanModal(true);
+        if (response.action_plan_analysis?.should_suggest_action_plan) {
+          setCurrentActionPlan(response.action_plan_analysis);
+          setShowActionPlanModal(true);
+        }
       }
 
       // Refresh memories
-      if (response.memory_stored) {
+      if (response.memory_stored || response.background_task_id) {
         if (mode === "production") {
           // Invalidate queries for production mode
           queryClient.invalidateQueries({ queryKey: ["memories"] });
@@ -197,6 +263,60 @@ export const Chat = ({
         error: error instanceof Error ? error.message : "Unknown error",
       };
       setMessages((prev) => [...prev, errorMessage]);
+    }
+  };
+
+  const handleCreateActionPlan = async () => {
+    if (!currentActionPlan?.background_task_id) {
+      antMessage.error("No action plan data available");
+      return;
+    }
+
+    setIsCreatingActionPlan(true);
+
+    try {
+      // Check if this is from multi-modal chat (has background_task_id)
+      if (currentActionPlan.background_task_id) {
+        // Use the new multi-modal API endpoint
+        const response = await axiosInstance.post(
+          `/chat-v2/action-plans/create-from-background?task_id=${currentActionPlan.background_task_id}`
+        );
+
+        if (response.data.action_plan_id) {
+          antMessage.success("Action plan created successfully!");
+          setShowActionPlanModal(false);
+
+          // Navigate to the action plan page
+          router.push(`/action-plans/${response.data.action_plan_id}`);
+        }
+      } else {
+        // Fallback: create using the direct action plan API
+        const actionPlanData = {
+          title: currentActionPlan.action_plan?.name || "AI Generated Plan",
+          description: currentActionPlan.action_plan?.description || "",
+          plan_type: currentActionPlan.action_plan_type || "hybrid",
+          priority: "medium",
+          tags: [],
+        };
+
+        const response = await axiosInstance.post(
+          "/action-plans/",
+          actionPlanData
+        );
+
+        if (response.data.id) {
+          antMessage.success("Action plan created successfully!");
+          setShowActionPlanModal(false);
+
+          // Navigate to the action plan page
+          router.push(`/action-plans/${response.data.id}`);
+        }
+      }
+    } catch (error) {
+      console.error("Error creating action plan:", error);
+      antMessage.error("Failed to create action plan. Please try again.");
+    } finally {
+      setIsCreatingActionPlan(false);
     }
   };
 
@@ -408,7 +528,7 @@ export const Chat = ({
             <form onSubmit={handleSendMessage} className="flex gap-3">
               <Input
                 value={inputValue}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   setInputValue(e.target.value)
                 }
                 placeholder="Type your message to Nura..."
@@ -512,10 +632,8 @@ export const Chat = ({
             key="create"
             type="primary"
             icon={<CheckCircle className="h-4 w-4" />}
-            onClick={() => {
-              // TODO: Integrate with action plan creation
-              setShowActionPlanModal(false);
-            }}
+            onClick={handleCreateActionPlan}
+            loading={isCreatingActionPlan}
           >
             Create Action Plan
           </Button>,

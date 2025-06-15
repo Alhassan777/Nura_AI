@@ -1,32 +1,29 @@
 """
-Assistant Service API - Mental health assistant functionality.
-Provides AI-powered mental health support and crisis detection.
+Mental Health Assistant API - Core chat and crisis assessment functionality.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-import logging
 
-# Internal imports
 from .mental_health_assistant import MentalHealthAssistant
 from utils.auth import get_current_user_id
 
+import logging
+
 logger = logging.getLogger(__name__)
 
-# Initialize router
+# Initialize router and assistant
 router = APIRouter(prefix="/assistant", tags=["assistant"])
-
-# Initialize assistant
 mental_health_assistant = MentalHealthAssistant()
 
 
-# Pydantic models for API
+# Pydantic models for API requests/responses
 class ChatRequest(BaseModel):
-    message: str
-    memory_context: Optional[Dict[str, Any]] = None
-    conversation_id: Optional[str] = None
+    message: str = Field(..., description="User's message")
+    conversation_id: Optional[str] = Field(None, description="Conversation context")
+    memory_context: Optional[Dict[str, Any]] = Field(None, description="Memory context")
 
 
 class ChatResponse(BaseModel):
@@ -54,24 +51,24 @@ class CrisisAssessmentResponse(BaseModel):
     resources: Dict[str, Any]
 
 
+# API Endpoints
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_assistant(
     request: ChatRequest, user_id: str = Depends(get_current_user_id)
 ):
-    """Generate a mental health assistant response. User authenticated via JWT."""
+    """
+    Main chat endpoint for mental health assistance.
+    Provides crisis assessment, coping strategies, and resource recommendations.
+    """
     try:
-        # Convert memory context if provided
-        memory_context = None
-        if request.memory_context:
-            # This would convert the dict to MemoryContext object
-            # For now, we'll pass None and let the assistant handle it
-            pass
-
-        response_data = await mental_health_assistant.generate_response(
+        # Process the message through the assistant extractor
+        response_data = await mental_health_assistant.process_message(
             user_message=request.message,
-            memory_context=memory_context,
             user_id=user_id,
             conversation_id=request.conversation_id,
+            memory_context=request.memory_context,
         )
 
         return ChatResponse(
@@ -83,45 +80,67 @@ async def chat_with_assistant(
             session_metadata=response_data["session_metadata"],
             crisis_flag=response_data["crisis_flag"],
             configuration_warning=response_data.get("configuration_warning"),
-            timestamp=response_data["timestamp"].isoformat(),
+            timestamp=datetime.utcnow().isoformat(),
             memory_stored=response_data["memory_stored"],
             schedule_analysis=response_data.get("schedule_analysis"),
             action_plan_analysis=response_data.get("action_plan_analysis"),
         )
 
     except Exception as e:
-        logger.error(f"Error generating assistant response: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in assistant chat for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to process message")
 
 
 @router.post("/crisis-assessment", response_model=CrisisAssessmentResponse)
 async def assess_crisis(request: CrisisAssessmentRequest):
-    """Assess crisis level of a message."""
+    """
+    Dedicated crisis assessment endpoint.
+    Evaluates the severity of a user's mental health crisis.
+    """
     try:
-        crisis_assessment = await mental_health_assistant._assess_crisis_level(
-            request.message
-        )
+        assessment = await mental_health_assistant._assess_crisis_level(request.message)
         crisis_resources = await mental_health_assistant.provide_crisis_resources()
 
         return CrisisAssessmentResponse(
-            level=crisis_assessment["level"],
-            explanation=crisis_assessment["explanation"],
+            level=assessment["level"],
+            explanation=assessment["explanation"],
             resources=crisis_resources,
         )
 
     except Exception as e:
-        logger.error(f"Error assessing crisis: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in crisis assessment: {e}")
+        raise HTTPException(status_code=500, detail="Failed to assess crisis level")
 
 
 @router.get("/crisis-resources")
 async def get_crisis_resources():
-    """Get crisis resources and emergency contacts."""
-    try:
-        return await mental_health_assistant.provide_crisis_resources()
-    except Exception as e:
-        logger.error(f"Error getting crisis resources: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Get comprehensive crisis intervention resources."""
+    return {
+        "hotlines": [
+            {
+                "name": "National Suicide Prevention Lifeline",
+                "number": "988",
+                "available": "24/7",
+            },
+            {
+                "name": "Crisis Text Line",
+                "number": "Text HOME to 741741",
+                "available": "24/7",
+            },
+            {
+                "name": "SAMHSA National Helpline",
+                "number": "1-800-662-4357",
+                "available": "24/7",
+            },
+        ],
+        "immediate_actions": [
+            "Call 911 or go to your nearest emergency room if in immediate danger",
+            "Reach out to a trusted friend, family member, or mental health professional",
+            "Remove any means of self-harm from your immediate environment",
+            "Stay with someone or ask someone to stay with you",
+            "Consider calling a crisis hotline to talk through your feelings",
+        ],
+    }
 
 
 if __name__ == "__main__":

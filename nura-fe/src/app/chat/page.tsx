@@ -67,7 +67,7 @@ export default function ChatPage() {
               type="default"
               size="large"
               icon={<MessageCircle className="h-5 w-5" />}
-              onClick={() => router.push("/text-chat")}
+              onClick={() => router.push("/chat-mode-selection")}
               className="w-full h-12 text-base"
             >
               Start Text Conversation
