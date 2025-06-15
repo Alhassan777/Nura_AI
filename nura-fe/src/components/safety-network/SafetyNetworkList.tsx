@@ -10,13 +10,18 @@ import {
 
 interface Contact {
   id: string;
-  contact_id: string;
+  contact_user_id?: string;
   relationship_type: string;
   is_emergency_contact: boolean;
-  user_profile?: {
-    email: string;
-    full_name?: string;
-  };
+  created_at: string;
+  updated_at: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone_number?: string;
+  priority_order: number;
+  is_active: boolean;
 }
 
 export const SafetyNetworkList = () => {
@@ -56,27 +61,39 @@ export const SafetyNetworkList = () => {
             {contacts.map((contact) => (
               <div
                 key={contact.id}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="flex items-center justify-between p-6 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition-all duration-200"
               >
                 <div className="flex items-center space-x-4">
                   <Avatar
-                    size={48}
+                    size={56}
                     icon={<UserOutlined />}
-                    className="bg-blue-500"
+                    className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-2 border-blue-100 dark:border-blue-800"
                   />
-                  <div>
-                    <h3 className="font-semibold text-gray-900 dark:text-white">
-                      {contact.user_profile?.full_name ||
-                        contact.user_profile?.email ||
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                      {contact.full_name ||
+                        `${contact.first_name || ""} ${
+                          contact.last_name || ""
+                        }`.trim() ||
+                        contact.email ||
                         "Unknown User"}
                     </h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      {contact.user_profile?.email}
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                      {contact.email || "No email available"}
                     </p>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <Tag color="blue">{contact.relationship_type}</Tag>
+                    <div className="flex items-center space-x-2">
+                      <Tag
+                        color="blue"
+                        className="text-xs font-medium px-2 py-1 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-0"
+                      >
+                        {contact.relationship_type}
+                      </Tag>
                       {contact.is_emergency_contact && (
-                        <Tag color="red" icon={<PhoneOutlined />}>
+                        <Tag
+                          color="red"
+                          icon={<PhoneOutlined />}
+                          className="text-xs font-medium px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 border-0"
+                        >
                           Emergency Contact
                         </Tag>
                       )}
@@ -90,8 +107,9 @@ export const SafetyNetworkList = () => {
                   icon={<DeleteOutlined />}
                   onClick={() => handleRemoveContact(contact.id)}
                   loading={removeContactMutation.isPending}
+                  className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                 >
-                  Remove
+                  <span className="hidden sm:inline">Remove</span>
                 </Button>
               </div>
             ))}

@@ -11,11 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from .database import get_db
-from models import SafetyContact, ContactLog, CommunicationMethod
-
-# Add user service path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "user"))
-from services.user.manager import UserManager
+from models import SafetyContact, ContactLog, CommunicationMethod, User
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +64,9 @@ class SafetyNetworkManager:
                 # Validate that we have either contact_user_id OR external contact info
                 if contact_user_id:
                     # Verify the contact user exists in central database
-                    contact_user = UserManager.get_user_by_id(contact_user_id)
+                    contact_user = (
+                        db.query(User).filter(User.id == contact_user_id).first()
+                    )
                     if not contact_user:
                         logger.error(
                             f"Contact user {contact_user_id} not found in central database"
@@ -109,7 +107,7 @@ class SafetyNetworkManager:
                 )
 
                 db.add(contact)
-                db.flush()  # Get the ID
+                db.commit()  # Commit the transaction to save the contact
 
                 logger.info(f"Added safety contact {contact.id} for user {user_id}")
                 return contact.id
@@ -151,7 +149,7 @@ class SafetyNetworkManager:
                 enriched_contacts = []
                 for contact in contacts:
                     enriched_contact = SafetyNetworkManager._enrich_contact_data(
-                        contact
+                        contact, db
                     )
                     enriched_contacts.append(enriched_contact)
 
@@ -162,7 +160,7 @@ class SafetyNetworkManager:
             return []
 
     @staticmethod
-    def _enrich_contact_data(contact: SafetyContact) -> Dict[str, Any]:
+    def _enrich_contact_data(contact: SafetyContact, db) -> Dict[str, Any]:
         """
         Enrich safety contact with user data from central database.
         """
@@ -189,21 +187,36 @@ class SafetyNetworkManager:
         # Get contact details
         if contact.contact_user_id:
             # Contact is a user in our system - get data from central user DB
-            contact_user = UserManager.get_user_by_id(contact.contact_user_id)
-            if contact_user:
-                contact_data.update(
-                    {
-                        "first_name": contact_user.first_name,
-                        "last_name": contact_user.last_name,
-                        "phone_number": contact_user.phone_number,
-                        "email": contact_user.email,
-                        "full_name": contact_user.full_name,
-                    }
+            try:
+                contact_user = (
+                    db.query(User).filter(User.id == contact.contact_user_id).first()
                 )
-            else:
-                logger.warning(
-                    f"Contact user {contact.contact_user_id} not found in central database"
-                )
+                if contact_user:
+                    # Extract all data immediately while in session
+                    contact_data.update(
+                        {
+                            "first_name": contact_user.first_name,
+                            "last_name": contact_user.last_name,
+                            "phone_number": contact_user.phone_number,
+                            "email": contact_user.email,
+                            "full_name": contact_user.full_name,
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"Contact user {contact.contact_user_id} not found in central database"
+                    )
+                    contact_data.update(
+                        {
+                            "first_name": f"User {contact.contact_user_id}",
+                            "last_name": "",
+                            "phone_number": None,
+                            "email": None,
+                            "full_name": f"User {contact.contact_user_id}",
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"Error fetching contact user data: {e}")
                 contact_data.update(
                     {
                         "first_name": f"User {contact.contact_user_id}",
@@ -236,6 +249,81 @@ class SafetyNetworkManager:
             emergency_only=True,
             ordered_by_priority=True,
         )
+
+    @staticmethod
+    def get_helping_relationships(
+        contact_user_id: str,
+        active_only: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get relationships where the specified user is a safety contact for others.
+        This shows who the user is helping in their safety networks.
+
+        Args:
+            contact_user_id: User who is serving as a safety contact
+            active_only: Only return active relationships
+
+        Returns:
+            List of relationships with details about who they're helping
+        """
+        try:
+            with get_db() as db:
+                query = db.query(SafetyContact).filter(
+                    SafetyContact.contact_user_id == contact_user_id
+                )
+
+                if active_only:
+                    query = query.filter(SafetyContact.is_active == True)
+
+                # Order by most recent first
+                helping_contacts = query.order_by(SafetyContact.created_at.desc()).all()
+
+                # Enrich with owner data
+                helping_relationships = []
+                for contact in helping_contacts:
+                    # Get the person who owns this safety network (who we're helping)
+                    owner = db.query(User).filter(User.id == contact.user_id).first()
+
+                    if not owner:
+                        continue
+
+                    # Extract permissions from custom_metadata if available
+                    permissions = {}
+                    if (
+                        contact.custom_metadata
+                        and "permissions" in contact.custom_metadata
+                    ):
+                        permissions = contact.custom_metadata["permissions"]
+
+                    relationship_data = {
+                        "id": contact.id,
+                        "helping_user": {
+                            "id": str(owner.id),
+                            "full_name": owner.full_name,
+                            "display_name": owner.display_name,
+                            "email": owner.email,
+                            "avatar_url": owner.avatar_url,
+                        },
+                        "relationship_type": contact.relationship_type,
+                        "permissions_granted": permissions,
+                        "communication_methods": contact.allowed_communication_methods,
+                        "preferred_method": contact.preferred_communication_method,
+                        "is_emergency_contact": contact.is_emergency_contact,
+                        "priority_order": contact.priority_order,
+                        "notes": contact.notes,
+                        "created_at": contact.created_at,
+                        "last_contacted_at": contact.last_contacted_at,
+                        "last_contact_successful": contact.last_contact_successful,
+                        "preferred_contact_time": contact.preferred_contact_time,
+                        "timezone": contact.timezone,
+                    }
+                    helping_relationships.append(relationship_data)
+
+                return helping_relationships
+
+        except Exception as e:
+            logger.error(f"Error getting helping relationships: {e}")
+            return []
 
     @staticmethod
     def update_safety_contact(contact_id: str, user_id: str, **updates) -> bool:

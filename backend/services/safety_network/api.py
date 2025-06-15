@@ -6,7 +6,7 @@ SECURE: All endpoints use JWT authentication - users can only access their own s
 import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 
 # Import unified authentication system
 from utils.auth import get_current_user_id, get_authenticated_user, AuthenticatedUser
@@ -35,6 +35,41 @@ class CrisisLogRequest(BaseModel):
     contact_success: bool
     crisis_summary: str
     next_steps: Optional[str] = None
+
+
+class AddContactRequest(BaseModel):
+    contact_id: str
+    relationship_type: str
+
+
+class UpdateEmergencyContactRequest(BaseModel):
+    is_emergency_contact: bool
+
+
+class UpdateContactPriorityRequest(BaseModel):
+    priority_order: int = Field(
+        ..., ge=1, le=100, description="New priority order (1 = highest priority)"
+    )
+
+
+class ReorderContactsRequest(BaseModel):
+    contact_priorities: Dict[str, int] = Field(
+        ..., description="Mapping of contact_id to new priority order"
+    )
+
+    @validator("contact_priorities")
+    def validate_priorities(cls, v):
+        if not v:
+            raise ValueError("At least one contact priority must be specified")
+
+        # Check that all priorities are valid
+        for contact_id, priority in v.items():
+            if priority < 1 or priority > 100:
+                raise ValueError(
+                    f"Priority for contact {contact_id} must be between 1 and 100"
+                )
+
+        return v
 
 
 # 🔐 SECURE SAFETY ENDPOINTS - JWT Authentication Required
@@ -73,6 +108,154 @@ async def get_user_safety_contacts(
         logger.error(f"Error getting safety contacts for user {user_id}: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to retrieve contacts: {str(e)}"
+        )
+
+
+@router.get("/helping")
+async def get_who_am_i_helping(
+    active_only: bool = Query(True, description="Only return active relationships"),
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Get relationships where current user is a safety contact for others.
+    Shows who the current user is helping in their safety network.
+    """
+    try:
+        helping_relationships = SafetyNetworkManager.get_helping_relationships(
+            contact_user_id=user_id,
+            active_only=active_only,
+        )
+
+        logger.info(
+            f"Retrieved {len(helping_relationships)} helping relationships for user {user_id}"
+        )
+
+        return {
+            "success": True,
+            "helping": helping_relationships,
+            "count": len(helping_relationships),
+            "message": f"You are helping {len(helping_relationships)} people in their safety network",
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting helping relationships for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve helping relationships: {str(e)}",
+        )
+
+
+@router.post("/contacts")
+async def add_safety_contact(
+    request: AddContactRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Add a contact to user's safety network.
+    """
+    try:
+        # Get next priority order
+        existing_contacts = SafetyNetworkManager.get_user_safety_contacts(
+            user_id=user_id, active_only=True
+        )
+        priority_order = len(existing_contacts) + 1
+
+        contact_id = SafetyNetworkManager.add_safety_contact(
+            user_id=user_id,
+            contact_user_id=request.contact_id,
+            priority_order=priority_order,
+            relationship_type=request.relationship_type,
+            allowed_communication_methods=["phone", "email", "sms"],
+            preferred_communication_method="phone",
+            is_emergency_contact=False,
+        )
+
+        if not contact_id:
+            raise HTTPException(status_code=400, detail="Failed to add safety contact")
+
+        logger.info(f"Added safety contact {contact_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "contact_id": contact_id,
+            "message": "Contact added successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding safety contact for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to add contact: {str(e)}")
+
+
+@router.delete("/contacts/{contact_id}")
+async def remove_safety_contact(
+    contact_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Remove a contact from user's safety network.
+    """
+    try:
+        success = SafetyNetworkManager.remove_safety_contact(
+            contact_id=contact_id, user_id=user_id
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=404, detail="Contact not found or already removed"
+            )
+
+        logger.info(f"Removed safety contact {contact_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "message": "Contact removed successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing safety contact for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to remove contact: {str(e)}"
+        )
+
+
+@router.put("/contacts/{contact_id}")
+async def update_emergency_contact_status(
+    contact_id: str,
+    request: UpdateEmergencyContactRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Update emergency contact status for a safety contact.
+    """
+    try:
+        success = SafetyNetworkManager.update_safety_contact(
+            contact_id=contact_id,
+            user_id=user_id,
+            is_emergency_contact=request.is_emergency_contact,
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        logger.info(
+            f"Updated emergency status for contact {contact_id} (user {user_id}): {request.is_emergency_contact}"
+        )
+
+        return {
+            "success": True,
+            "message": "Emergency contact status updated successfully",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating emergency contact status: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to update contact: {str(e)}"
         )
 
 
@@ -309,3 +492,71 @@ async def cancel_safety_checkup(
             f"Error cancelling safety schedule {schedule_id} for user {user_id}: {e}"
         )
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# PRIORITY MANAGEMENT
+# =============================================================================
+
+
+@router.put("/contacts/{contact_id}/priority")
+async def update_contact_priority(
+    contact_id: str,
+    request: UpdateContactPriorityRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Update the priority order for a specific safety contact.
+    """
+    try:
+        success = SafetyNetworkManager.update_safety_contact(
+            contact_id=contact_id,
+            user_id=user_id,
+            priority_order=request.priority_order,
+        )
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        return {
+            "success": True,
+            "message": "Contact priority updated successfully",
+            "contact_id": contact_id,
+            "priority_order": request.priority_order,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating contact priority: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/contacts/reorder")
+async def reorder_safety_contacts(
+    request: ReorderContactsRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    """
+    Reorder multiple safety contacts by updating their priority values.
+    """
+    try:
+        success = SafetyNetworkManager.reorder_contacts(
+            user_id=user_id,
+            contact_priorities=request.contact_priorities,
+        )
+
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to reorder contacts")
+
+        return {
+            "success": True,
+            "message": f"Successfully reordered {len(request.contact_priorities)} contacts",
+            "updated_contacts": len(request.contact_priorities),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reordering contacts: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

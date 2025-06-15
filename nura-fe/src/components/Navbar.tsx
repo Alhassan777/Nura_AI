@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Dropdown, Avatar, MenuProps, App } from "antd";
+import { Button, Dropdown, Avatar, MenuProps, App, Badge } from "antd";
 import {
   UserOutlined,
   LogoutOutlined,
@@ -15,6 +15,11 @@ import {
   SafetyCertificateOutlined,
   DatabaseOutlined,
 } from "@ant-design/icons";
+import {
+  Image as ImageIcon,
+  History as HistoryIcon,
+  Target as TargetIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
@@ -24,6 +29,7 @@ import StatsCards from "@/components/StatsCards";
 import LevelProgress from "@/components/LevelProgress";
 import { useAuth } from "@/contexts/AuthContext";
 import { getLevelFromXp, getXpForLevel } from "@/utils/level-system";
+import { useInvitationNotifications } from "@/contexts/InvitationNotificationContext";
 
 export default function Sidebar() {
   const { user, logout: authLogout, isLoading } = useAuth();
@@ -33,6 +39,8 @@ export default function Sidebar() {
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { message } = App.useApp();
+  const { hasNewInvitations, newInvitationsCount, markNotificationsAsRead } =
+    useInvitationNotifications();
 
   useEffect(() => {
     const checkMobile = () => {
@@ -175,22 +183,21 @@ export default function Sidebar() {
     {
       key: "soul-gallery",
       label: "Soul Gallery",
-      icon: <UserOutlined />,
+      icon: <ImageIcon size={20} />,
       path: "/soul-gallery",
     },
     {
       key: "chat-history",
       label: "Chat History",
-      icon: <UserOutlined />,
+      icon: <HistoryIcon size={20} />,
       path: "/chat-history",
     },
     {
       key: "action-plans",
       label: "Action Plans",
-      icon: <UserOutlined />,
+      icon: <TargetIcon size={20} />,
       path: "/action-plans",
     },
-
     {
       key: "daily",
       label: "Calendar",
@@ -240,23 +247,43 @@ export default function Sidebar() {
           >
             {navigationItems.map((item) => {
               const isActive = pathname === item.path;
+              const showBadge =
+                item.key === "safety-network" && hasNewInvitations;
+
+              const handleClick = () => {
+                if (item.key === "safety-network" && hasNewInvitations) {
+                  markNotificationsAsRead();
+                }
+              };
+
               return (
-                <Link key={item.key} href={item.path} className="block">
-                  <Button
-                    size="large"
-                    icon={item.icon}
-                    type={isActive ? "primary" : "default"}
-                    className={cn(
-                      "w-full flex items-center !shadow-xs",
-                      isCollapsed ? "!justify-center" : "!justify-start"
-                    )}
+                <Link
+                  key={item.key}
+                  href={item.path}
+                  className="block"
+                  onClick={handleClick}
+                >
+                  <Badge
+                    count={showBadge ? newInvitationsCount : 0}
+                    size="small"
+                    className="w-full"
                   >
-                    {(!isCollapsed || isMobile) && (
-                      <span className={cn("ml-2", isActive && "font-medium")}>
-                        {item.label}
-                      </span>
-                    )}
-                  </Button>
+                    <Button
+                      size="large"
+                      icon={item.icon}
+                      type={isActive ? "primary" : "default"}
+                      className={cn(
+                        "w-full flex items-center !shadow-xs",
+                        isCollapsed ? "!justify-center" : "!justify-start"
+                      )}
+                    >
+                      {(!isCollapsed || isMobile) && (
+                        <span className={cn("ml-2", isActive && "font-medium")}>
+                          {item.label}
+                        </span>
+                      )}
+                    </Button>
+                  </Badge>
                 </Link>
               );
             })}

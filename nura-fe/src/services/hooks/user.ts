@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Reflection } from '@/types/reflection';
-import { getUser } from '../apis';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { Reflection } from "@/types/reflection";
+import { getUser } from "../apis";
+import { useQuery } from "@tanstack/react-query";
 
 export interface UserProfile {
   // Add fields specific to your user_profiles table
@@ -43,7 +43,7 @@ interface UseUserResult {
 
 export const useUser = () => {
   return useQuery({
-    queryKey: ['user'],
+    queryKey: ["user"],
     queryFn: () => getUser(),
   });
 };

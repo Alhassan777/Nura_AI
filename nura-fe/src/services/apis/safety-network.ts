@@ -2,15 +2,18 @@ import { axiosInstance } from "./index";
 
 export interface Contact {
   id: string;
-  contact_id: string;
+  contact_user_id?: string;
   relationship_type: string;
   is_emergency_contact: boolean;
   created_at: string;
   updated_at: string;
-  user_profile?: {
-    email: string;
-    full_name?: string;
-  };
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone_number?: string;
+  priority_order: number;
+  is_active: boolean;
 }
 
 export interface AddContactPayload {
@@ -22,29 +25,39 @@ export interface UpdateEmergencyContactPayload {
   is_emergency_contact: boolean;
 }
 
+export interface UpdateContactPriorityPayload {
+  priority_order: number;
+}
+
+export interface ReorderContactsPayload {
+  contact_priorities: Record<string, number>;
+}
+
 // Safety Network API functions
 export const safetyNetworkApi = {
   // Get user's safety network
   getNetwork: () =>
-    axiosInstance.get("/safety_network").then((res) => res.data),
+    axiosInstance
+      .get("/safety-network/contacts")
+      .then((res) => res.data.contacts || []),
 
   // Add contact to safety network
   addContact: (data: AddContactPayload) =>
     axiosInstance
-      .post("/safety_network/contacts", data)
+      .post("/safety-network/contacts", data)
       .then((res) => res.data),
 
   // Remove contact from safety network
   removeContact: (contactId: string) =>
     axiosInstance
-      .delete(`/safety_network/contacts/${contactId}`)
+      .delete(`/safety-network/contacts/${contactId}`)
       .then((res) => res.data),
 
   // Get emergency contacts
   getEmergencyContacts: () =>
     axiosInstance
-      .get("/safety_network/emergency-contacts")
-      .then((res) => res.data),
+      .get("/safety-network/contacts?emergency_only=true")
+      .then((res) => res.data.contacts || []),
 
   // Update emergency contact status
   updateEmergencyContact: (
@@ -52,6 +65,20 @@ export const safetyNetworkApi = {
     data: UpdateEmergencyContactPayload
   ) =>
     axiosInstance
-      .put(`/safety_network/emergency-contacts/${contactId}`, data)
+      .put(`/safety-network/contacts/${contactId}`, data)
+      .then((res) => res.data),
+
+  // Priority management
+  updateContactPriority: (
+    contactId: string,
+    data: UpdateContactPriorityPayload
+  ) =>
+    axiosInstance
+      .put(`/safety-network/contacts/${contactId}/priority`, data)
+      .then((res) => res.data),
+
+  reorderContacts: (data: ReorderContactsPayload) =>
+    axiosInstance
+      .put("/safety-network/contacts/reorder", data)
       .then((res) => res.data),
 };

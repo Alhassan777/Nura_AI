@@ -15,7 +15,10 @@ export type Quest = {
   created_at: string;
 };
 
-export type CreateQuestType = Omit<Quest, "id" | "key" | "progress" | "created_at" | "type">;
+export type CreateQuestType = Omit<
+  Quest,
+  "id" | "key" | "progress" | "created_at" | "type"
+>;
 
 export type QuestProgress = {
   count?: number;
@@ -113,7 +116,7 @@ async function getQuestProgress(
           status: uq.status,
           completedAt: uq.completed_at,
           count: uq.count || 0,
-          completed: uq.status === "COMPLETED"
+          completed: uq.status === "COMPLETED",
         };
       }
 
@@ -142,7 +145,8 @@ async function getQuestProgress(
         const latestProgress = uq[0];
 
         // Check if quest was completed in this time frame
-        const isCompleted = latestProgress.status === "COMPLETED" &&
+        const isCompleted =
+          latestProgress.status === "COMPLETED" &&
           latestProgress.completed_at &&
           new Date(latestProgress.completed_at) >= startDate &&
           new Date(latestProgress.completed_at) < endDate;
@@ -151,7 +155,7 @@ async function getQuestProgress(
           status: latestProgress.status,
           completedAt: latestProgress.completed_at,
           count: latestProgress.count || 0,
-          completed: isCompleted
+          completed: isCompleted,
         };
       }
 
@@ -331,7 +335,9 @@ export const completeQuest = async (questId: string) => {
     if (existingProgress.status === "COMPLETED") {
       // For time-based quests, if already completed in this time frame, don't allow more progress
       if (quest.time_frame !== "one_time") {
-        throw new Error(`Quest already completed for this ${quest.time_frame} period`);
+        throw new Error(
+          `Quest already completed for this ${quest.time_frame} period`
+        );
       } else {
         throw new Error("Quest already completed");
       }
@@ -350,7 +356,8 @@ export const completeQuest = async (questId: string) => {
       .update({
         count: newCount,
         status: newStatus,
-        completed_at: newStatus === "COMPLETED" ? new Date().toISOString() : null,
+        completed_at:
+          newStatus === "COMPLETED" ? new Date().toISOString() : null,
       })
       .eq("id", existingProgress.id);
 
@@ -359,15 +366,13 @@ export const completeQuest = async (questId: string) => {
     }
   } else {
     // Create new entry
-    const { error: insertError } = await supabase
-      .from("user_quests")
-      .insert({
-        user_id: userId,
-        quest_id: questId,
-        status: newStatus,
-        count: newCount,
-        completed_at: newStatus === "COMPLETED" ? new Date().toISOString() : null,
-      });
+    const { error: insertError } = await supabase.from("user_quests").insert({
+      user_id: userId,
+      quest_id: questId,
+      status: newStatus,
+      count: newCount,
+      completed_at: newStatus === "COMPLETED" ? new Date().toISOString() : null,
+    });
 
     if (insertError) {
       throw new Error(insertError.message);
@@ -384,6 +389,6 @@ export const completeQuest = async (questId: string) => {
     completed: newStatus === "COMPLETED",
     progress: newCount,
     total: quest.frequency,
-    timeFrame: quest.time_frame
+    timeFrame: quest.time_frame,
   };
 };

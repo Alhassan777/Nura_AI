@@ -4,7 +4,10 @@ import { createClient } from "@/utils/supabase/server";
 export async function GET() {
   try {
     const supabase = await createClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
     if (userError) {
       console.error("Error fetching user:", userError);
@@ -15,27 +18,25 @@ export async function GET() {
     }
 
     if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Get additional profile data from database if you have a profiles table
     // This is just an example - modify according to your actual schema
     const { data: profile, error: profileError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
+      .from("users")
+      .select("*")
+      .eq("id", user.id)
       .single();
 
     const { data: reflections, error: reflectionsError } = await supabase
-      .from('reflections')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .from("reflections")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
 
-    if (profileError && profileError.code !== 'PGRST116') { // PGRST116: No rows returned (which is fine if user has no profile yet)
+    if (profileError && profileError.code !== "PGRST116") {
+      // PGRST116: No rows returned (which is fine if user has no profile yet)
       console.error("Error fetching profile:", profileError);
     }
 
@@ -64,4 +65,4 @@ export async function GET() {
       { status: 500 }
     );
   }
-} 
+}
