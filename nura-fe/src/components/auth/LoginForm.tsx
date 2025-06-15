@@ -49,13 +49,6 @@ export default function LoginForm() {
         }
       }
 
-      const { data, error } = await supabase.auth.setSession({
-        access_token: result.token,
-        refresh_token: result.session.refresh_token,
-      });
-      console.log("data", data);
-      console.log("error", error);
-
       message.success("Login successful");
 
       // Set user in auth context immediately
@@ -64,6 +57,10 @@ export default function LoginForm() {
       // Also refresh to ensure backend sync
       setTimeout(refreshUser, 100);
 
+      const { data, error } = await supabase.auth.setSession({
+        access_token: result.token,
+        refresh_token: result.session.refresh_token,
+      });
       // Redirect to dashboard
       router.push("/");
     } catch (error) {

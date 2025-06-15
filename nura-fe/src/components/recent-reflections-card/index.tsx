@@ -8,9 +8,7 @@ import { ReflectionSkeleton } from "./RecentReflectionSkeleton";
 export const RecentReflectionsCard = () => {
   const { data: reflections, isLoading } = useGetReflections();
 
-  const latestThree = reflections?.slice(0, 3);
-
-  console.log("reflections", latestThree);
+  const latestThree = reflections?.slice(0, 3) || [];
 
   return (
     <motion.div

@@ -93,10 +93,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  const supabaeLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+  };
+
   const logout = async () => {
     try {
-      const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabaeLogout();
       await logoutAction();
       setUser(null);
       setError(null);
@@ -124,6 +128,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             localStorage.removeItem("auth_token");
             localStorage.removeItem("refresh_token");
             localStorage.removeItem("user");
+            await supabaeLogout();
             setIsLoading(false);
             push("/login");
           }
@@ -142,6 +147,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 localStorage.removeItem("auth_token");
                 localStorage.removeItem("refresh_token");
                 localStorage.removeItem("user");
+                await supabaeLogout();
                 setUserState(null);
                 push("/login");
               }
@@ -149,6 +155,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           } catch {
             // Invalid local data, clear it and redirect
             localStorage.removeItem("user");
+            await supabaeLogout();
             setIsLoading(false);
             push("/login");
           }

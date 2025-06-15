@@ -260,13 +260,13 @@ export default function Sidebar() {
                 <Link
                   key={item.key}
                   href={item.path}
-                  className="block"
+                  className="block w-full"
                   onClick={handleClick}
                 >
                   <Badge
                     count={showBadge ? newInvitationsCount : 0}
                     size="small"
-                    className="w-full"
+                    className="!w-full"
                   >
                     <Button
                       size="large"

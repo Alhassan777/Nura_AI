@@ -39,6 +39,8 @@ export async function login(formData: LoginFormData) {
       }
     }
 
+    console.log("DATA", data)
+
     return {
       user: data.user,
       session: data.session,
