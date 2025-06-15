@@ -11,6 +11,7 @@ import uuid
 
 from models import User, UserPrivacySettings
 from .database import get_db
+from utils.database import get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class UserManager:
             User ID if successful, None if failed
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 # Check if user already exists
                 existing_user = db.query(User).filter(User.id == user_id).first()
                 if existing_user:
@@ -72,7 +73,7 @@ class UserManager:
     def get_user_by_id(user_id: str) -> Optional[User]:
         """Get user by ID."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 return db.query(User).filter(User.id == user_id).first()
         except Exception as e:
             logger.error(f"Error getting user by ID: {e}")
@@ -82,7 +83,7 @@ class UserManager:
     def get_user_by_email(email: str) -> Optional[User]:
         """Get user by email."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 return db.query(User).filter(User.email == email).first()
         except Exception as e:
             logger.error(f"Error getting user by email: {e}")
@@ -92,7 +93,7 @@ class UserManager:
     def update_user(user_id: str, **updates) -> bool:
         """Update user information."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 user = db.query(User).filter(User.id == user_id).first()
                 if not user:
                     logger.warning(f"User {user_id} not found")
@@ -137,7 +138,7 @@ class UserManager:
     ) -> List[User]:
         """Get list of users with pagination."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 query = db.query(User)
 
                 if active_only:

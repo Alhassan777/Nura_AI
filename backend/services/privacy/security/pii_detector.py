@@ -1,9 +1,17 @@
 import os
 import re
 import logging
+import warnings
 from typing import List, Dict, Any, Optional, Set
 from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
 from presidio_anonymizer import AnonymizerEngine
+
+# Suppress HuggingFace warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub")
+warnings.filterwarnings(
+    "ignore", message="Some weights of the model checkpoint.*were not used"
+)
+
 from transformers import pipeline
 from ...memory.types import MemoryItem
 

@@ -1,14 +1,18 @@
-import { CreateQuestType } from "@/app/api/gamification/quests/utils";
-import axios from "axios"
+// Removed legacy import - using backend types
+import { axiosInstance } from "../index";
 
 export const getUserQuests = async () => {
-  return axios.get("/api/gamification/quests").then((res) => res.data);
-}
+  return axiosInstance.get("/gamification/quests").then((res) => res.data);
+};
 
-export const createQuest = async (quest: CreateQuestType) => {
-  return axios.post("/api/gamification/quests", quest).then((res) => res.data);
+export const createQuest = async (quest: any) => {
+  return axiosInstance
+    .post("/gamification/quests", quest)
+    .then((res) => res.data);
 };
 
 export const completeQuest = async (questId: string) => {
-  return axios.put("/api/gamification/quests", { questId }).then((res) => res.data);
+  return axiosInstance
+    .put(`/gamification/quests/${questId}/complete`)
+    .then((res) => res.data);
 };

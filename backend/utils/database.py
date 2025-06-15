@@ -137,7 +137,7 @@ def get_database_manager(service_name: Optional[str] = None) -> DatabaseManager:
 
 def get_db(service_name: Optional[str] = None) -> Generator[Session, None, None]:
     """
-    Universal get_db function that all services can use.
+    Universal get_db function for FastAPI dependency injection.
 
     Args:
         service_name: Optional service name for service-specific configuration
@@ -146,20 +146,43 @@ def get_db(service_name: Optional[str] = None) -> Generator[Session, None, None]
         Database session
 
     Example:
-        # In any service:
-        from utils.database import get_db
-
-        # Use default database
-        with get_db() as db:
-            ...
-
-        # Use service-specific database
-        with get_db('safety_network') as db:
+        # In FastAPI endpoints:
+        @app.get("/items")
+        def get_items(db: Session = Depends(get_db)):
             ...
     """
     manager = get_database_manager(service_name)
-    with manager.get_db() as session:
+    session = manager.SessionLocal()
+    try:
         yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        logger.error(
+            f"Database session error in {manager.service_name or 'default'}: {e}"
+        )
+        raise
+    finally:
+        session.close()
+
+
+def get_db_context(service_name: Optional[str] = None):
+    """
+    Database context manager for manual usage.
+
+    Args:
+        service_name: Optional service name for service-specific configuration
+
+    Returns:
+        Context manager that yields database session
+
+    Example:
+        # In manual context manager:
+        with get_db_context('safety_network') as db:
+            ...
+    """
+    manager = get_database_manager(service_name)
+    return manager.get_db()
 
 
 async def execute_query(

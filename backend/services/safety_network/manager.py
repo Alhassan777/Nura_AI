@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from .database import get_db
+from utils.database import get_db_context
 from models import SafetyContact, ContactLog, CommunicationMethod, User
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class SafetyNetworkManager:
             Contact ID if successful, None if failed
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 # Validate communication methods
                 valid_methods = [method.value for method in CommunicationMethod]
                 if not all(
@@ -129,7 +130,7 @@ class SafetyNetworkManager:
         Returns enriched contact data with actual names, emails, phones from central user DB.
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 query = db.query(SafetyContact).filter(SafetyContact.user_id == user_id)
 
                 if active_only:
@@ -267,7 +268,7 @@ class SafetyNetworkManager:
             List of relationships with details about who they're helping
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 query = db.query(SafetyContact).filter(
                     SafetyContact.contact_user_id == contact_user_id
                 )
@@ -329,7 +330,7 @@ class SafetyNetworkManager:
     def update_safety_contact(contact_id: str, user_id: str, **updates) -> bool:
         """Update an existing safety contact."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 contact = (
                     db.query(SafetyContact)
                     .filter(
@@ -364,7 +365,7 @@ class SafetyNetworkManager:
     def remove_safety_contact(contact_id: str, user_id: str) -> bool:
         """Remove a safety contact."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 contact = (
                     db.query(SafetyContact)
                     .filter(
@@ -412,7 +413,7 @@ class SafetyNetworkManager:
     ) -> bool:
         """Log a contact attempt with a safety network contact."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 contact_log = ContactLog(
                     safety_contact_id=safety_contact_id,
                     user_id=user_id,
@@ -458,7 +459,7 @@ class SafetyNetworkManager:
     ) -> List[Dict[str, Any]]:
         """Get contact history for a user or specific contact."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 query = db.query(ContactLog).filter(ContactLog.user_id == user_id)
 
                 if safety_contact_id:
@@ -508,7 +509,7 @@ class SafetyNetworkManager:
             contact_priorities: Dict mapping contact_id to new priority order
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 for contact_id, new_priority in contact_priorities.items():
                     contact = (
                         db.query(SafetyContact)

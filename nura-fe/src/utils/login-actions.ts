@@ -3,13 +3,11 @@
 import { redirect } from "next/navigation";
 import { SignupFormData } from "@/components/auth/types";
 import { LoginFormData } from "@/components/auth/LoginForm";
-import { createClient } from "./supabase/client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export async function login(formData: LoginFormData) {
   try {
-
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: "POST",
       headers: {
@@ -39,7 +37,7 @@ export async function login(formData: LoginFormData) {
       }
     }
 
-    console.log("DATA", data)
+    console.log("DATA", data);
 
     return {
       user: data.user,

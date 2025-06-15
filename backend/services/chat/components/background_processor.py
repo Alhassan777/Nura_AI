@@ -76,6 +76,7 @@ class BackgroundProcessor:
                 "user_id": user_id,
                 "mode": mode,
                 "started_at": datetime.utcnow().isoformat(),
+                "status": "processing",
                 "tasks": {},
             }
 
@@ -175,6 +176,7 @@ class BackgroundProcessor:
                 ),
             }
             background_results["completed_at"] = datetime.utcnow().isoformat()
+            background_results["status"] = "completed"
 
             # Cache the background results
             await self.cache_manager.cache_background_results(
@@ -188,7 +190,9 @@ class BackgroundProcessor:
             # Cache error result
             error_result = {
                 "task_id": task_id,
+                "user_id": user_id,
                 "error": str(e),
+                "status": "error",
                 "completed_at": datetime.utcnow().isoformat(),
             }
             await self.cache_manager.cache_background_results(task_id, error_result)

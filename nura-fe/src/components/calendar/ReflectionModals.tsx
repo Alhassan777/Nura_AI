@@ -1,5 +1,5 @@
 import { Modal, Divider } from "antd";
-import { Reflection } from "@/types/reflection";
+import { Reflection } from "@/services/apis/gamification";
 import RecentReflectionItem from "../recent-reflections-card/RecentReflectionItem";
 import { MoodSelectorMemo } from "../MoodSelector";
 

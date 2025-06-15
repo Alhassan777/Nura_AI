@@ -2,11 +2,11 @@
 import { Button, Empty, Space } from "antd";
 import { AnimatePresence, motion } from "framer-motion";
 import RecentReflectionItem from "./RecentReflectionItem";
-import { useGetReflections } from "@/services/hooks/use-gamification";
+import { useReflections } from "@/services/hooks/use-gamification";
 import { ReflectionSkeleton } from "./RecentReflectionSkeleton";
 
 export const RecentReflectionsCard = () => {
-  const { data: reflections, isLoading } = useGetReflections();
+  const { data: reflections, isLoading } = useReflections();
 
   const latestThree = reflections?.slice(0, 3) || [];
 

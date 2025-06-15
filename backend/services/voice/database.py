@@ -31,7 +31,7 @@ def get_db() -> Generator[Session, None, None]:
 
     Works for both:
     1. FastAPI dependency injection: db: Session = Depends(get_db)
-    2. Manual context manager: with get_db() as db:
+    2. Manual context manager: with get_db_context() as db:
 
     Ensures proper cleanup and error handling.
     """

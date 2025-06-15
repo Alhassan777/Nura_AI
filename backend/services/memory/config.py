@@ -88,48 +88,48 @@ class Config:
     )
 
     @classmethod
-    def get_mental_health_system_prompt(cls) -> str:
-        """Get the mental health system prompt from file."""
-        prompt = load_prompt_from_file(cls.MENTAL_HEALTH_SYSTEM_PROMPT_FILE)
+    def get_mental_health_system_prompt(cls, mode: str = "general") -> str:
+        """Get the mental health system prompt from file for specific mode."""
+        try:
+            from utils.prompts.chat.prompt_loader import get_system_prompt
 
-        if not prompt:
-            logger.error("MENTAL_HEALTH_SYSTEM_PROMPT file not found or empty")
-            return "⚠️ CONFIGURATION ERROR: Mental health assistant system prompt not configured."
-
-        return prompt
+            return get_system_prompt(mode)
+        except Exception as e:
+            logger.error(f"Failed to load system prompt for mode {mode}: {e}")
+            return f"⚠️ CONFIGURATION ERROR: Mental health assistant system prompt not configured for mode {mode}."
 
     @classmethod
-    def get_conversation_guidelines(cls) -> str:
-        """Get the conversation guidelines from file."""
-        prompt = load_prompt_from_file(cls.CONVERSATION_GUIDELINES_FILE)
+    def get_conversation_guidelines(cls, mode: str = "general") -> str:
+        """Get the conversation guidelines from file for specific mode."""
+        try:
+            from utils.prompts.chat.prompt_loader import get_conversation_guidelines
 
-        if not prompt:
-            logger.error("CONVERSATION_GUIDELINES file not found or empty")
-            return "⚠️ CONFIGURATION ERROR: Conversation guidelines not configured."
-
-        return prompt
+            return get_conversation_guidelines(mode)
+        except Exception as e:
+            logger.error(f"Failed to load conversation guidelines for mode {mode}: {e}")
+            return f"⚠️ CONFIGURATION ERROR: Conversation guidelines not configured for mode {mode}."
 
     @classmethod
     def get_crisis_detection_prompt(cls) -> str:
         """Get the crisis detection prompt from file."""
-        prompt = load_prompt_from_file(cls.CRISIS_DETECTION_PROMPT_FILE)
+        try:
+            from utils.prompts.chat.prompt_loader import get_crisis_detection_prompt
 
-        if not prompt:
-            logger.error("CRISIS_DETECTION_PROMPT file not found or empty")
+            return get_crisis_detection_prompt()
+        except Exception as e:
+            logger.error(f"Failed to load crisis detection prompt: {e}")
             return "⚠️ CONFIGURATION ERROR: Crisis detection not properly configured."
-
-        return prompt
 
     @classmethod
     def get_memory_comprehensive_scoring_prompt(cls) -> str:
         """Get the memory comprehensive scoring prompt from file."""
-        prompt = load_prompt_from_file(cls.MEMORY_COMPREHENSIVE_SCORING_PROMPT_FILE)
+        try:
+            from utils.prompts.chat.prompt_loader import get_memory_scoring_prompt
 
-        if not prompt:
-            logger.error("MEMORY_COMPREHENSIVE_SCORING_PROMPT file not found or empty")
+            return get_memory_scoring_prompt()
+        except Exception as e:
+            logger.error(f"Failed to load memory scoring prompt: {e}")
             return "⚠️ CONFIGURATION ERROR: Comprehensive memory scoring not configured."
-
-        return prompt
 
     @classmethod
     def validate(cls) -> None:
@@ -172,32 +172,9 @@ The Memory Service will not function properly without these configurations.
     @classmethod
     def check_optional_config(cls) -> None:
         """Check optional configuration and warn if defaults are being used."""
-        warnings = []
-
-        if cls.REDIS_URL == "redis://localhost:6379":
-            warnings.append("REDIS_URL not set - using default local Redis")
-
-        if cls.VECTOR_DB_TYPE == "chroma" and cls.CHROMA_PERSIST_DIR == "./chroma":
-            warnings.append(
-                "CHROMA_PERSIST_DIR not set - using default ./chroma directory"
-            )
-        # Vector database warnings
-        if cls.VECTOR_DB_TYPE == "chroma":
-            warnings.append("Using ChromaDB (local) - consider Pinecone for production")
-        elif cls.VECTOR_DB_TYPE == "pinecone":
-            warnings.append("Using Pinecone vector database")
-
-        if warnings:
-            warning_msg = f"""
-ℹ️  CONFIGURATION NOTICE: Current vector database setup:
-
-{chr(10).join(f"  - {warning}" for warning in warnings)}
-
-Vector Database Type: {cls.VECTOR_DB_TYPE.upper()}
-See env.example for all available configuration options.
-"""
-            logger.info(warning_msg)
-            print(warning_msg)
+        # Configuration checking is now handled centrally by config_manager
+        # This method is kept for backward compatibility but no longer prints messages
+        pass
 
     @classmethod
     def get_memory_config(cls) -> Dict[str, Any]:

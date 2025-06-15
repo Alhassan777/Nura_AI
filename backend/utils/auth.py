@@ -127,11 +127,11 @@ class Auth:
             HTTPException: If user not found or inactive
         """
         try:
-            from services.user.database import get_db
+            from utils.database import get_db_context
             from services.user.sync_service import to_uuid
             from models import User
 
-            with get_db() as db:
+            with get_db_context("user") as db:
                 user_uuid = to_uuid(user_id)
                 user = db.query(User).filter(User.id == user_uuid).first()
                 if not user:

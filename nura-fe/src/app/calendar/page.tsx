@@ -4,8 +4,8 @@ import dayjs, { Dayjs } from "dayjs";
 import { WEEKDAYS } from "@/constants/calendar";
 import { CalendarHeader } from "@/components/calendar/CalendarHeader";
 import { CalendarDay } from "@/components/calendar/CalendarDay";
-import { Reflection } from "@/types/reflection";
-import { useGetReflections } from "@/services/hooks/use-gamification";
+import { Reflection } from "@/services/apis/gamification";
+import { useReflections } from "@/services/hooks/use-gamification";
 import {
   useSchedulingEvents,
   useCreateEvent,
@@ -24,7 +24,10 @@ import {
   Tag,
 } from "antd";
 import { useAuth } from "@/contexts/AuthContext";
-import { User } from "@supabase/supabase-js";
+interface User {
+  id: string;
+  created_at: string;
+}
 import {
   Plus,
   Clock,
@@ -77,7 +80,7 @@ export default function CalendarPage() {
 
   // Main store for all reflections - an array of StoredReflection objects
   const { data: reflections, isLoading: isLoadingReflections } =
-    useGetReflections();
+    useReflections();
   const { data: events, isLoading: isLoadingEvents } = useSchedulingEvents();
   const { mutate: createEvent, isPending: isCreatingEvent } = useCreateEvent();
 

@@ -1,4 +1,5 @@
 """
-Gamification service for Nura App.
-Handles badges, quests, reflections, XP, and streak tracking.
+Gamification Service
+Handles user rewards, badges, quests, streaks, and XP management.
+SECURE: All endpoints use JWT authentication - users can only access their own data.
 """

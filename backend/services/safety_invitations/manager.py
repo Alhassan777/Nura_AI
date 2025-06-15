@@ -12,7 +12,7 @@ import sys
 import os
 from sqlalchemy import and_, or_
 
-from .database import get_db
+from .database import get_db, get_db_context_local
 from .search import UserSearch
 from models import (
     SafetyNetworkRequest,
@@ -188,7 +188,7 @@ class SafetyInvitationManager:
         Returns user-friendly error messages for common scenarios.
         """
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 # 1. Find recipient by email
                 recipient = db.query(User).filter(User.email == recipient_email).first()
 
@@ -487,7 +487,7 @@ class SafetyInvitationManager:
             Dictionary with success status and safety contact details
         """
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 # 1. Get invitation
                 invitation = (
                     db.query(SafetyNetworkRequest)
@@ -646,7 +646,7 @@ class SafetyInvitationManager:
     ) -> Dict[str, Any]:
         """Decline a safety network invitation."""
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 invitation = (
                     db.query(SafetyNetworkRequest)
                     .filter(
@@ -710,7 +710,7 @@ class SafetyInvitationManager:
         Note: Since accepted/declined invitations are deleted, only pending invitations are available.
         """
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 # Build query based on direction
                 if direction == "incoming":
                     query = db.query(SafetyNetworkRequest).filter(
@@ -807,7 +807,7 @@ class SafetyInvitationManager:
     ) -> Dict[str, Any]:
         """Generate preview metadata for invitation."""
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 requester = db.query(User).filter(User.id == requester_id).first()
                 permission_summary = (
                     SafetyInvitationManager._generate_permission_summary(

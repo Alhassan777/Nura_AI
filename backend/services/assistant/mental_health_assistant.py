@@ -90,11 +90,14 @@ class MentalHealthAssistant:
             candidate_count=1,
         )
 
-    def _load_core_prompts(self):
-        """Load core prompts from configuration."""
-        self.system_prompt = Config.get_mental_health_system_prompt()
-        self.conversation_guidelines = Config.get_conversation_guidelines()
+    def _load_core_prompts(self, mode: str = "general"):
+        """Load core prompts from configuration for specific mode."""
+        self.system_prompt = Config.get_mental_health_system_prompt(mode)
+        self.conversation_guidelines = Config.get_conversation_guidelines(mode)
         self.crisis_detection_prompt = Config.get_crisis_detection_prompt()
+
+        # Store current mode for reference
+        self.current_mode = mode
 
     def _initialize_extractors(self):
         """Initialize all the extraction modules."""
@@ -122,7 +125,7 @@ class MentalHealthAssistant:
         if missing_configs:
             error_msg = f"⚠️  CONFIGURATION ERROR: Missing environment variables: {', '.join(missing_configs)}. Using fallback configurations with limited functionality."
             logger.error(error_msg)
-            print(f"\n{error_msg}\n")
+            # Configuration error messages are now handled by centralized config_manager
 
     async def generate_response(
         self,

@@ -52,7 +52,7 @@ class GeminiScorer:
         if "CONFIGURATION ERROR" in self.scoring_prompt:
             error_msg = "⚠️  CONFIGURATION ERROR: Missing MEMORY_COMPREHENSIVE_SCORING_PROMPT. Using fallback scoring with limited functionality."
             logger.error(error_msg)
-            print(f"\n{error_msg}\n")
+            # Configuration error messages are now handled by centralized config_manager
 
     def score_memory(self, memory: MemoryItem) -> List[MemoryScore]:
         """Score a memory using Gemini's significance-based analysis, returning multiple components."""

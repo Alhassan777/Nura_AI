@@ -2,11 +2,14 @@ import { Button, Tag } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import { MOOD_ICONS } from "@/constants/calendar";
 import { memo, useState } from "react";
-import { Reflection } from "@/types/reflection";
+import { Reflection } from "@/services/apis/gamification";
 import { PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ReflectionModals from "./ReflectionModals";
-import { User } from "@supabase/supabase-js";
+interface User {
+  id: string;
+  created_at: string;
+}
 
 interface CalendarDayProps {
   date: Dayjs;
@@ -108,11 +111,11 @@ function CalendarDayComponent({
                 <div className="flex gap-1 flex-wrap">
                   {reflection.tags.slice(0, 2).map((tag) => (
                     <Tag
-                      key={tag.value}
-                      color={tag.color}
+                      key={tag}
+                      color="blue"
                       className="!m-0 !text-xs !px-2 !py-0.5 !rounded-md"
                     >
-                      {tag.label}
+                      {tag}
                     </Tag>
                   ))}
                   {reflection.tags.length > 2 && (

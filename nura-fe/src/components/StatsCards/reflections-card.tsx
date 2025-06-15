@@ -1,11 +1,11 @@
-import { useGetReflections } from "@/services/hooks/use-gamification";
+import { useReflections } from "@/services/hooks/use-gamification";
 import { CommentOutlined } from "@ant-design/icons";
 import SkeletonCard from "./skeleton-card";
 import { motion } from "framer-motion";
 import AnimatedNumber from "./AnimatedNumber";
 
 export const ReflectionsCard = ({ isCollapsed }: { isCollapsed: boolean }) => {
-  const { data: reflections, isLoading } = useGetReflections();
+  const { data: reflections, isLoading } = useReflections();
 
   if (isLoading) return <SkeletonCard isCollapsed={isCollapsed} />;
 

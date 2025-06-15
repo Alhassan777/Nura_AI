@@ -34,14 +34,11 @@ axiosInstance.interceptors.request.use(
 // Add response interceptor to handle auth errors
 axiosInstance.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error.response?.status === 401) {
-      // Clear auth data and redirect to login
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("auth_token");
-        localStorage.removeItem("user");
-        window.location.href = "/login";
-      }
+      // Import auth helpers dynamically to avoid circular dependencies
+      const { handleAuthError } = await import("@/utils/auth-helpers");
+      await handleAuthError(error);
     }
     return Promise.reject(error);
   }

@@ -2,12 +2,11 @@ import { message, Tag, TagType } from "antd";
 import { motion } from "framer-motion";
 import { MOOD_OPTIONS } from "@/constants/calendar";
 import React, { useState } from "react";
-import { Reflection } from "@/types/reflection";
+import { Reflection } from "@/services/apis/gamification";
 import { PencilIcon, TrashIcon } from "lucide-react";
 import { Button, Popconfirm } from "antd";
 import EditReflectionModal from "./EditReflectionModal";
 import { useDeleteReflection } from "@/services/hooks/use-gamification";
-import { useInvalidateQueries } from "@/services/apis/invalidate-queries";
 
 export const RecentReflectionItem = ({
   reflection,
@@ -25,7 +24,7 @@ export const RecentReflectionItem = ({
   const { mutateAsync: deleteReflection, isPending: isDeleting } =
     useDeleteReflection();
 
-  const { invalidateReflectionsQuery } = useInvalidateQueries();
+  // React Query automatically invalidates in useDeleteReflection
 
   const [editModalOpen, setEditModalOpen] = useState(false);
 
@@ -87,8 +86,7 @@ export const RecentReflectionItem = ({
                 cancelButtonProps={{ disabled: isDeleting }}
                 onConfirm={async () => {
                   try {
-                    await deleteReflection({ reflectionId: reflection.id });
-                    invalidateReflectionsQuery();
+                    await deleteReflection(reflection.id);
                     message.success("Reflection deleted");
                   } catch (error) {
                     console.error(error);
@@ -106,9 +104,9 @@ export const RecentReflectionItem = ({
             {reflection.note}
           </div>
           <div className="flex gap-2 flex-wrap">
-            {reflection?.tags?.map((t) => (
-              <Tag key={t.value} color={t.color}>
-                {t.label}
+            {reflection?.tags?.map((tag) => (
+              <Tag key={tag} color="blue">
+                {tag}
               </Tag>
             ))}
           </div>

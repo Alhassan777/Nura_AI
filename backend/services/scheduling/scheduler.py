@@ -9,6 +9,7 @@ from croniter import croniter
 
 from models import Schedule, ScheduleType, ReminderMethod, ScheduleExecution
 from .database import get_db
+from utils.database import get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class ScheduleManager:
             Schedule ID if successful, None if failed
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 # Calculate next run time
                 cron = croniter(cron_expression, datetime.utcnow())
                 next_run_at = cron.get_next(datetime)
@@ -74,7 +75,7 @@ class ScheduleManager:
     def get_user_schedules(user_id: str, active_only: bool = True) -> List[Schedule]:
         """Get all schedules for a user."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 query = db.query(Schedule).filter(Schedule.user_id == user_id)
 
                 if active_only:
@@ -90,7 +91,7 @@ class ScheduleManager:
     def update_schedule(schedule_id: str, user_id: str, **updates) -> bool:
         """Update an existing schedule."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 schedule = (
                     db.query(Schedule)
                     .filter(Schedule.id == schedule_id, Schedule.user_id == user_id)
@@ -126,7 +127,7 @@ class ScheduleManager:
     def delete_schedule(schedule_id: str, user_id: str) -> bool:
         """Delete a schedule."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 schedule = (
                     db.query(Schedule)
                     .filter(Schedule.id == schedule_id, Schedule.user_id == user_id)
@@ -151,7 +152,7 @@ class ScheduleManager:
     def deactivate_schedule(schedule_id: str, user_id: str) -> bool:
         """Deactivate a schedule instead of deleting it."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 schedule = (
                     db.query(Schedule)
                     .filter(Schedule.id == schedule_id, Schedule.user_id == user_id)
@@ -178,7 +179,7 @@ class ScheduleManager:
     def get_due_schedules() -> List[Schedule]:
         """Get all schedules that are due to run."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 now = datetime.utcnow()
                 return (
                     db.query(Schedule)
@@ -202,7 +203,7 @@ class ScheduleManager:
     ) -> bool:
         """Log a schedule execution attempt."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 execution = ScheduleExecution(
                     schedule_id=schedule_id,
                     status=status,

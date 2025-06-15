@@ -6,7 +6,6 @@ import StreakStatisticsCard from "@/components/StreakStatisticsCard";
 import ChatWithNuraCard from "@/components/ChatWithNuraCard";
 import ReflectionCalendarCard from "@/components/ReflectionCalendarCard";
 import FeaturesGridCard from "@/components/FeaturesGridCard";
-import { createClient } from "@/utils/supabase/server";
 
 export default async function Page() {
   return (

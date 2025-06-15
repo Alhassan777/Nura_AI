@@ -86,6 +86,44 @@ async def test_service_integrations():
         results["general_mode"] = False
         print(f"❌ General mode test failed: {e}")
 
+    # Test background result synchronization (no 404s)
+    print("\n🔄 Testing background result synchronization...")
+    try:
+        result = await service.process_message(
+            user_id=test_user_id,
+            message="Help me create a fitness plan",
+            mode="action_plan",
+        )
+
+        if "background_task_id" in result:
+            task_id = result["background_task_id"]
+            print(f"   Background task ID: {task_id}")
+
+            # Immediately try to get results - should return "processing" status, not 404
+            immediate_results = await service.get_background_results(task_id)
+            if immediate_results and immediate_results.get("status") == "processing":
+                print("✅ Immediate poll returns 'processing' status (no 404)")
+                results["synchronization_fix"] = True
+            else:
+                print(f"❌ Immediate poll failed: {immediate_results}")
+                results["synchronization_fix"] = False
+
+            # Wait for completion
+            await asyncio.sleep(3)
+            final_results = await service.get_background_results(task_id)
+            if final_results and final_results.get("status") == "completed":
+                print("✅ Final poll returns 'completed' status")
+            else:
+                print(
+                    f"⏳ Final poll status: {final_results.get('status') if final_results else 'None'}"
+                )
+        else:
+            results["synchronization_fix"] = False
+
+    except Exception as e:
+        results["synchronization_fix"] = False
+        print(f"❌ Synchronization test failed: {e}")
+
     # Test 3: Action Plan Mode
     print("\n📋 Testing action plan mode...")
     try:

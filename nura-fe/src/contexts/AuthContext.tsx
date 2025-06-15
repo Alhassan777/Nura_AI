@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import { getCurrentUser, logout as logoutAction } from "@/utils/login-actions";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/utils/supabase/client";
 
 interface User {
   id: string;
@@ -66,6 +65,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setIsLoading(true);
       setError(null);
 
+      // Check if we have a backend auth token
+      const authToken =
+        typeof window !== "undefined"
+          ? localStorage.getItem("auth_token")
+          : null;
+
+      if (!authToken) {
+        // No auth token, clear everything
+        setUser(null);
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("auth_token");
+          localStorage.removeItem("refresh_token");
+          localStorage.removeItem("user");
+        }
+        return;
+      }
+
+      // Fetch user data from backend API
       const userData = await getCurrentUser();
       if (userData) {
         setUser(userData);
@@ -93,14 +110,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const supabaeLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-  };
-
   const logout = async () => {
     try {
-      await supabaeLogout();
       await logoutAction();
       setUser(null);
       setError(null);
@@ -128,7 +139,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             localStorage.removeItem("auth_token");
             localStorage.removeItem("refresh_token");
             localStorage.removeItem("user");
-            await supabaeLogout();
             setIsLoading(false);
             push("/login");
           }
@@ -147,7 +157,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 localStorage.removeItem("auth_token");
                 localStorage.removeItem("refresh_token");
                 localStorage.removeItem("user");
-                await supabaeLogout();
                 setUserState(null);
                 push("/login");
               }
@@ -155,7 +164,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           } catch {
             // Invalid local data, clear it and redirect
             localStorage.removeItem("user");
-            await supabaeLogout();
             setIsLoading(false);
             push("/login");
           }

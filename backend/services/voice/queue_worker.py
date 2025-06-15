@@ -17,6 +17,7 @@ from .config import config
 from .vapi_client import vapi_client
 from models import VoiceSchedule, VoiceCall
 from .database import get_db
+from utils.database import get_db_context
 from .user_integration import VoiceUserIntegration
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class VoiceCallQueue:
             Job ID if successful
         """
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 schedule = (
                     db.query(VoiceSchedule)
                     .filter(
@@ -182,7 +183,7 @@ class VoiceCallQueue:
             )
 
             # Store call record
-            with get_db() as db:
+            with get_db_context() as db:
                 call_record = VoiceCall(
                     vapi_call_id=call_response["id"],
                     user_id=job["user_id"],
@@ -277,7 +278,7 @@ class ScheduleWorker:
     async def _check_schedules(self):
         """Check for schedules that need to be executed."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 current_time = datetime.utcnow()
 
                 # Find schedules ready to run

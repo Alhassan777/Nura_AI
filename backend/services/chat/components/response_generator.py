@@ -94,8 +94,25 @@ Please provide a supportive, empathetic response. Focus on immediate emotional s
             return "No recent conversation context available."
 
         context_parts = ["Recent conversation:"]
-        for msg in recent_messages[-3:]:  # Only last 3 messages
-            content = msg.get("content", "")[:200]  # Truncate for speed
-            context_parts.append(f"- {content}")
+        for msg in recent_messages[-5:]:  # Only last 5 messages for speed
+            # Handle both dict and object formats
+            if isinstance(msg, dict):
+                content = msg.get("content", "")
+                role = msg.get("role", "unknown")
+            else:
+                content = getattr(msg, "content", "")
+                role = getattr(msg, "role", "unknown")
+
+            # Truncate long messages but keep meaningful content
+            if len(content) > 300:
+                content = content[:280] + "..."
+
+            # Format based on role
+            if role == "user":
+                context_parts.append(f"User: {content}")
+            elif role == "assistant":
+                context_parts.append(f"Assistant: {content}")
+            else:
+                context_parts.append(f"{role.title()}: {content}")
 
         return "\n".join(context_parts)

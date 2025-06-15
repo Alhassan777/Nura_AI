@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { login } from "@/utils/login-actions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useSetCookie } from "cookies-next/client";
-import { createClient } from "@/utils/supabase/client";
 
 export interface LoginFormData {
   email: string;
@@ -31,8 +30,6 @@ export default function LoginForm() {
   const { message } = App.useApp();
   const setCookie = useSetCookie();
 
-  const supabase = createClient();
-
   const onFinish = async (values: LoginFormData) => {
     setLoading(true);
 
@@ -40,10 +37,15 @@ export default function LoginForm() {
       console.log("Login values:", values);
       const result = await login(values);
 
-      // Store tokens in localStorage
+      // Store tokens in localStorage for persistence
       if (typeof window !== "undefined" && result.token) {
         localStorage.setItem("auth_token", result.token);
-        setCookie("auth_token", result.token);
+        setCookie("auth_token", result.token, {
+          maxAge: 60 * 60 * 24 * 7, // 7 days
+          httpOnly: false,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+        });
         if (result.session.refresh_token) {
           localStorage.setItem("refresh_token", result.session.refresh_token);
         }
@@ -51,16 +53,12 @@ export default function LoginForm() {
 
       message.success("Login successful");
 
-      // Set user in auth context immediately
+      // Set user in auth context
       setUser(result.user);
 
-      // Also refresh to ensure backend sync
+      // Refresh user data to ensure backend sync
       setTimeout(refreshUser, 100);
 
-      const { data, error } = await supabase.auth.setSession({
-        access_token: result.token,
-        refresh_token: result.session.refresh_token,
-      });
       // Redirect to dashboard
       router.push("/");
     } catch (error) {

@@ -7,8 +7,8 @@ import {
   DEFAULT_REFLECTION,
   DefaultReflection,
 } from "@/constants/default-reflection";
-import { useAddReflection } from "@/services/hooks/use-gamification";
-import { useInvalidateQueries } from "@/services/apis/invalidate-queries";
+import { useCreateReflection } from "@/services/hooks/use-gamification";
+// Removed invalidate queries - using React Query's built-in invalidation
 
 export function MoodSelector({
   onChange,
@@ -16,17 +16,23 @@ export function MoodSelector({
   onChange?: (mood: string) => void;
 }) {
   const { mutateAsync: addReflection, isPending: isAdding } =
-    useAddReflection();
+    useCreateReflection();
 
-  const { invalidateReflectionsQuery } = useInvalidateQueries();
+  // React Query automatically invalidates queries in useCreateReflection
 
   const [currentReflection, setCurrentReflection] =
     useState<DefaultReflection>(DEFAULT_REFLECTION);
 
   const handleSave = async () => {
     try {
-      await addReflection(currentReflection);
-      invalidateReflectionsQuery();
+      const reflectionData = {
+        mood: currentReflection.mood,
+        note: currentReflection.note,
+        tags: currentReflection.tags.map((tag) =>
+          typeof tag === "string" ? tag : tag.label
+        ),
+      };
+      await addReflection(reflectionData);
       message.success("Reflection saved!");
     } catch (error) {
       console.error(error);

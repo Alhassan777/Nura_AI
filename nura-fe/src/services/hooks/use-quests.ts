@@ -4,12 +4,16 @@ import {
   getUserQuests,
   completeQuest,
 } from "@/services/apis/gamification/quests";
-import { CreateQuestType } from "@/app/api/gamification/quests/utils";
+// Removed legacy import - using backend types
+import { useAuth } from "@/contexts/AuthContext";
 
 export const useQuests = () => {
+  const { user } = useAuth();
+
   return useQuery({
     queryKey: ["quests"],
     queryFn: getUserQuests,
+    enabled: !!user, // Only run when user is authenticated
   });
 };
 
@@ -17,7 +21,7 @@ export const useCreateQuest = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (quest: CreateQuestType) => createQuest(quest),
+    mutationFn: (quest: any) => createQuest(quest),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quests"] });
     },

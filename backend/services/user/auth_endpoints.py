@@ -20,6 +20,9 @@ from supabase import create_client, Client
 # Import user sync service
 from .sync_service import sync_service
 
+# Import database utilities
+from utils.database import get_db_context
+
 logger = logging.getLogger(__name__)
 
 # Supabase configuration
@@ -350,7 +353,7 @@ async def get_user_profile(
         from models import User
         from .sync_service import to_uuid
 
-        with get_db() as db:
+        with get_db_context() as db:
             user_uuid = to_uuid(user.user_id)
             db_user = db.query(User).filter(User.id == user_uuid).first()
 
@@ -432,7 +435,7 @@ async def delete_user_account(
         from models import User
         from .sync_service import to_uuid
 
-        with get_db() as db:
+        with get_db_context() as db:
             user_uuid = to_uuid(user_id)
             db_user = db.query(User).filter(User.id == user_uuid).first()
             if db_user:

@@ -70,7 +70,7 @@ class AuditLogger:
             self.local_logger.addHandler(handler)
 
         self.log_method = self._log_to_file
-        print(f"✅ Audit logging initialized (local file: {log_file})")
+        # Audit logging initialization message is now handled by centralized config_manager
 
     def _log_to_gcp(self, log_entry: Dict[str, Any]):
         """Log to Google Cloud Logging."""

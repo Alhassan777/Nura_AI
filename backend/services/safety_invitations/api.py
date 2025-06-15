@@ -551,7 +551,7 @@ async def get_invitation_preview(
     Get a preview of an invitation with clear permission breakdown.
     """
     try:
-        with get_db() as db:
+        with get_db_context_local() as db:
             invitation = (
                 db.query(SafetyNetworkRequest)
                 .filter(

@@ -2,6 +2,8 @@
 Privacy processor for PII detection, consent management, and GDPR compliance.
 """
 
+from __future__ import annotations
+
 import logging
 import json
 from typing import Dict, Any, List, Optional

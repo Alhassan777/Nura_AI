@@ -65,6 +65,9 @@ class BackgroundResultsResponse(BaseModel):
     mode: str = Field(..., description="Chat mode processed")
     started_at: str = Field(..., description="Task start timestamp")
     completed_at: Optional[str] = Field(None, description="Task completion timestamp")
+    status: str = Field(
+        ..., description="Processing status: processing, completed, error"
+    )
     tasks: Dict[str, Any] = Field(..., description="Individual task results")
 
 
@@ -154,6 +157,7 @@ async def get_background_results(
     - Crisis assessment
     - Mode-specific processing (action plans, visualizations)
     - Context enrichment status
+    - Processing status (processing, completed, error)
     """
     try:
         results = await multi_modal_service.get_background_results(task_id)
@@ -161,7 +165,7 @@ async def get_background_results(
         if not results:
             raise HTTPException(
                 status_code=404,
-                detail="Background task results not found or still processing",
+                detail="Background task not found - task may have expired or is invalid",
             )
 
         # Verify user owns this task

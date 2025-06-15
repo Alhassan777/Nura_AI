@@ -471,6 +471,36 @@ class CacheManager:
             logger.error(f"Error getting conversation messages: {e}")
             return None
 
+    async def cache_conversation_messages(
+        self, conversation_id: str, messages: List[Dict[str, Any]]
+    ) -> bool:
+        """Cache conversation messages for fast retrieval."""
+        cache_key = self._generate_cache_key(
+            "conversation_messages", conversation_id=conversation_id
+        )
+        try:
+            cache_data = {
+                "data": messages,
+                "cached_at": datetime.utcnow().isoformat(),
+                "cache_type": "conversation_messages",
+                "ttl": self.ttl_strategy["conversation_messages"],
+            }
+
+            success = await cache_set(
+                cache_key,
+                cache_data,
+                ttl_seconds=self.ttl_strategy["conversation_messages"],
+                user_context="system",
+            )
+            if success:
+                logger.debug(f"Cached messages for conversation {conversation_id}")
+            return success
+        except Exception as e:
+            logger.error(
+                f"Error caching conversation messages for {conversation_id}: {e}"
+            )
+            return False
+
     async def cache_background_results(
         self, task_id: str, results: Dict[str, Any]
     ) -> bool:

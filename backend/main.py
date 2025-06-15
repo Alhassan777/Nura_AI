@@ -3,13 +3,9 @@ Nura App Backend
 A comprehensive mental health support platform with voice assistance.
 """
 
-# Load environment variables first, before any other imports
-from dotenv import load_dotenv
+# Load centralized configuration manager first
+from config_manager import config_manager
 import os
-
-# Load .env file from the backend directory
-load_dotenv()
-
 import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +46,9 @@ from services.user.api import router as user_router  # User management service
 from services.user.auth_endpoints import (
     router as auth_router,
 )  # Authentication endpoints
+from services.gamification.api import (
+    router as gamification_router,
+)  # Gamification service
 
 # Configure logging
 logging.basicConfig(
@@ -96,6 +95,7 @@ app.include_router(safety_network_router)
 app.include_router(safety_invitations_router)
 app.include_router(user_router)
 app.include_router(auth_router)
+app.include_router(gamification_router)
 
 
 # Vapi webhook endpoint - receives ALL webhook calls from Supabase for Vapi
@@ -194,6 +194,7 @@ async def root():
             "safety_invitations": "/safety-invitations",
             "users": "/users",
             "auth": "/auth (login, signup, logout)",
+            "gamification": "/gamification (reflections, quests, badges, streak stats)",
         },
     }
 
@@ -231,6 +232,14 @@ async def startup_event():
     )
     logger.info("🔗 API Documentation: /docs")
     logger.info("❤️  Health Check: /health")
+
+    # Configuration is already loaded by config_manager import
+    if config_manager.has_errors():
+        logger.warning(
+            "⚠️  Some configuration errors detected - check startup output above"
+        )
+    else:
+        logger.info("✅ All configurations loaded successfully")
 
 
 # Shutdown event

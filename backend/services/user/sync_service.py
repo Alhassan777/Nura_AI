@@ -15,6 +15,7 @@ import json
 # Import from unified models to get the updated User with gamification fields
 from models import User, UserServiceProfile, UserSyncLog, ServiceType
 from .database import get_db
+from utils.database import get_db_context
 from ..memory.config import Config
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class UserSyncService:
         Returns:
             Dict with sync result and user data
         """
-        with get_db() as db:
+        with get_db_context() as db:
             try:
                 user_id_str = supabase_user_data.get("id")
                 if not user_id_str:
@@ -530,7 +531,7 @@ class UserSyncService:
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user data from backend database."""
 
-        with get_db() as db:
+        with get_db_context() as db:
             try:
                 user_uuid = to_uuid(user_id)
                 user = db.query(User).filter(User.id == user_uuid).first()
@@ -552,7 +553,7 @@ class UserSyncService:
     ) -> Dict[str, Any]:
         """Update user profile data from backend."""
 
-        with get_db() as db:
+        with get_db_context() as db:
             try:
                 user_uuid = to_uuid(user_id)
                 user = db.query(User).filter(User.id == user_uuid).first()
@@ -629,7 +630,7 @@ class UserSyncService:
     ) -> Optional[Dict[str, Any]]:
         """Get user's service-specific profile."""
 
-        with get_db() as db:
+        with get_db_context() as db:
             try:
                 user_uuid = to_uuid(user_id)
                 profile = (
@@ -668,7 +669,7 @@ class UserSyncService:
     async def health_check(self) -> bool:
         """Health check for sync service - tests database connectivity and basic operations."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 # Test basic database operation
                 db.execute("SELECT 1")
 

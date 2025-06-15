@@ -134,46 +134,112 @@ export const Chat = ({
 
       // Handle multi-modal response format
       if (response.background_task_id) {
-        // This is a multi-modal response - get background results
-        setTimeout(async () => {
-          try {
-            const backgroundResponse = await axiosInstance.get(
-              `/chat-v2/background-results/${response.background_task_id}`
-            );
+        // This is a multi-modal response - get background results with retry logic
+        const pollBackgroundResults = async (
+          taskId: string,
+          maxRetries = 8,
+          delay = 500
+        ) => {
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              console.log(
+                `Polling background results (attempt ${attempt}/${maxRetries}) for task: ${taskId}`
+              );
 
-            const backgroundData = backgroundResponse.data;
-            const modeSpecific = backgroundData.tasks?.mode_specific;
+              const backgroundResponse = await axiosInstance.get(
+                `/chat-v2/background-results/${taskId}`
+              );
 
-            // Check for action plan suggestions
-            if (modeSpecific?.should_suggest_action_plan) {
-              setCurrentActionPlan({
-                ...modeSpecific,
-                background_task_id: response.background_task_id,
-                action_plan_type:
-                  modeSpecific.action_plan?.plan_type || "hybrid",
-                extracted_action_plan: modeSpecific.action_plan || {},
-              });
-              setShowActionPlanModal(true);
+              console.log(
+                "Background results received:",
+                backgroundResponse.data
+              );
+              const backgroundData = backgroundResponse.data;
+
+              // Check processing status
+              if (backgroundData.status === "processing") {
+                console.log("Background processing still running, waiting...");
+                if (attempt < maxRetries) {
+                  await new Promise((resolve) => setTimeout(resolve, delay));
+                  delay = Math.min(delay * 1.2, 3000); // Gradual increase
+                  continue;
+                } else {
+                  console.warn(
+                    "Background processing taking longer than expected"
+                  );
+                  return; // Exit gracefully without throwing
+                }
+              }
+
+              if (backgroundData.status === "error") {
+                console.error(
+                  "Background processing failed:",
+                  backgroundData.error
+                );
+                return; // Exit gracefully
+              }
+
+              // Processing completed successfully
+              const modeSpecific = backgroundData.tasks?.mode_specific;
+
+              // Check for action plan suggestions
+              if (modeSpecific?.should_suggest_action_plan) {
+                console.log("Action plan suggestion found:", modeSpecific);
+                setCurrentActionPlan({
+                  ...modeSpecific,
+                  background_task_id: taskId,
+                  action_plan_type:
+                    modeSpecific.action_plan?.plan_type || "hybrid",
+                  extracted_action_plan: modeSpecific.action_plan || {},
+                });
+                setShowActionPlanModal(true);
+              }
+
+              // Check for crisis intervention
+              const crisisData = backgroundData.tasks?.crisis_assessment;
+              if (crisisData?.crisis_flag && crisisData?.level === "CRISIS") {
+                setCurrentCrisisData(crisisData);
+                setShowCrisisModal(true);
+              }
+
+              // Check for schedule suggestions
+              const scheduleData =
+                backgroundData.tasks?.mode_specific?.schedule_suggestion;
+              if (scheduleData?.should_suggest_scheduling) {
+                setCurrentScheduleSuggestion(scheduleData);
+                setShowScheduleModal(true);
+              }
+
+              // Success - exit retry loop
+              break;
+            } catch (error: any) {
+              console.log(
+                `Background results polling attempt ${attempt} failed:`,
+                error.response?.status,
+                error.message
+              );
+
+              // With the new status system, 404s should be rare and indicate a real problem
+              if (error.response?.status === 404) {
+                console.error(
+                  "Background task not found - task may have expired or failed to initialize"
+                );
+                break; // Don't retry 404s with the new system
+              } else {
+                console.error("Error polling background results:", error);
+                // Retry other errors briefly
+                if (attempt < 3) {
+                  await new Promise((resolve) => setTimeout(resolve, 1000));
+                  continue;
+                }
+                break;
+              }
             }
-
-            // Check for crisis intervention
-            const crisisData = backgroundData.tasks?.crisis_assessment;
-            if (crisisData?.crisis_flag && crisisData?.level === "CRISIS") {
-              setCurrentCrisisData(crisisData);
-              setShowCrisisModal(true);
-            }
-
-            // Check for schedule suggestions
-            const scheduleData =
-              backgroundData.tasks?.mode_specific?.schedule_suggestion;
-            if (scheduleData?.should_suggest_scheduling) {
-              setCurrentScheduleSuggestion(scheduleData);
-              setShowScheduleModal(true);
-            }
-          } catch (error) {
-            console.error("Error getting background results:", error);
           }
-        }, 2000); // Wait 2 seconds for background processing
+        };
+
+        // Start polling immediately since we now cache pending status
+        pollBackgroundResults(response.background_task_id);
       }
 
       if (mode === "production") {

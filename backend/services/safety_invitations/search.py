@@ -8,7 +8,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from sqlalchemy import or_, and_, Boolean
 
-from .database import get_db
+from .database import get_db, get_db_context_local
 from models import User, SafetyNetworkRequest, SafetyContact, UserBlock
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class UserSearch:
             List of user dictionaries with safe information and invitation eligibility
         """
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 # 1. Check if searching user is blocked from discovery by anyone
                 blocked_from_discovery = (
                     db.query(UserBlock)
@@ -406,7 +406,7 @@ class UserSearch:
             True if user exists and is active
         """
         try:
-            with get_db() as db:
+            with get_db_context_local() as db:
                 user = (
                     db.query(User)
                     .filter(

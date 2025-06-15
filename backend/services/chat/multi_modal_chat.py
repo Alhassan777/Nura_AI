@@ -220,6 +220,21 @@ class MultiModalChatService:
 
             # Start background processing (don't await)
             background_task_id = f"bg_{user_id}_{datetime.utcnow().timestamp()}"
+
+            # Immediately cache a pending status to avoid 404s on initial polls
+            pending_result = {
+                "task_id": background_task_id,
+                "user_id": user_id,
+                "mode": mode,
+                "started_at": datetime.utcnow().isoformat(),
+                "status": "processing",
+                "tasks": {},
+                "completed_at": None,
+            }
+            await self.cache_manager.cache_background_results(
+                background_task_id, pending_result
+            )
+
             asyncio.create_task(
                 self.background_processor.process_background_tasks(
                     user_id, message, conversation_id, mode, background_task_id, context
@@ -291,17 +306,135 @@ class MultiModalChatService:
                         "type": "conversation",
                     }
 
-            # Fallback: get minimal context directly (no heavy memory operations)
+            # If cache miss and we have a conversation_id, fetch recent messages from database
+            if conversation_id:
+                try:
+                    # Import here to avoid circular imports
+                    from .database import get_db
+                    from models import Message
+                    from sqlalchemy.orm import Session
+
+                    # Get database session
+                    db_gen = get_db()
+                    db: Session = next(db_gen)
+
+                    try:
+                        # Query recent messages from this conversation (limit to 8 for speed)
+                        recent_messages = (
+                            db.query(Message)
+                            .filter(Message.conversation_id == conversation_id)
+                            .order_by(Message.created_at.desc())
+                            .limit(8)
+                            .all()
+                        )
+
+                        if recent_messages:
+                            # Reverse to get chronological order
+                            recent_messages.reverse()
+
+                            # Build context from recent messages
+                            context_parts = []
+                            for msg in recent_messages:
+                                role_prefix = (
+                                    "User" if msg.role == "user" else "Assistant"
+                                )
+                                # Truncate long messages to keep context manageable
+                                content = (
+                                    msg.content[:200]
+                                    if len(msg.content) > 200
+                                    else msg.content
+                                )
+                                context_parts.append(f"{role_prefix}: {content}")
+
+                            context_str = "\n".join(context_parts)
+
+                            # Cache this for future fast access
+                            await self.cache_manager.cache_conversation_messages(
+                                conversation_id,
+                                [
+                                    {
+                                        "content": msg.content,
+                                        "role": msg.role,
+                                        "created_at": msg.created_at.isoformat(),
+                                    }
+                                    for msg in recent_messages
+                                ],
+                            )
+
+                            return {
+                                "context": f"Recent conversation context:\n{context_str}",
+                                "from_cache": False,
+                                "type": "database_recent",
+                            }
+                    finally:
+                        db.close()
+
+                except Exception as db_error:
+                    logger.warning(
+                        f"Failed to fetch recent messages from database: {db_error}"
+                    )
+
+            # Try to get some context from memory service (lightweight query)
+            try:
+                # Get a small amount of recent context from memory service
+                memory_context = await self.memory_service.get_memory_context(
+                    user_id=user_id,
+                    query=message,
+                    conversation_id=conversation_id,
+                    limit=3,  # Just a few recent memories for context
+                )
+
+                if memory_context and (
+                    memory_context.short_term or memory_context.long_term
+                ):
+                    context_parts = []
+
+                    # Add recent conversation memories
+                    if memory_context.short_term:
+                        for memory in memory_context.short_term[-3:]:  # Last 3 memories
+                            if hasattr(memory, "content"):
+                                content = (
+                                    memory.content[:150]
+                                    if len(memory.content) > 150
+                                    else memory.content
+                                )
+                                context_parts.append(f"Recent: {content}")
+
+                    # Add one relevant long-term memory if available
+                    if memory_context.long_term:
+                        memory = memory_context.long_term[0]  # Most relevant
+                        if hasattr(memory, "content"):
+                            content = (
+                                memory.content[:150]
+                                if len(memory.content) > 150
+                                else memory.content
+                            )
+                            context_parts.append(f"Relevant: {content}")
+
+                    if context_parts:
+                        return {
+                            "context": "Context from memory:\n"
+                            + "\n".join(context_parts),
+                            "from_cache": False,
+                            "type": "memory_lightweight",
+                        }
+
+            except Exception as memory_error:
+                logger.warning(
+                    f"Failed to get lightweight memory context: {memory_error}"
+                )
+
+            # Final fallback: provide minimal but encouraging context
             return {
-                "context": "This appears to be a new or uncached conversation.",
+                "context": "I'm here to help you. Feel free to share what's on your mind.",
                 "from_cache": False,
-                "type": "minimal",
+                "type": "minimal_fallback",
             }
 
         except Exception as e:
             logger.error(f"Error getting fast context: {e}")
             return {
-                "context": "Context temporarily unavailable.",
+                "context": "I'm here to support you. How can I help you today?",
                 "from_cache": False,
                 "type": "error",
             }

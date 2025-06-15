@@ -437,7 +437,7 @@ export default function ActionPlansPage() {
           }
           initialValues={
             editingPlan || {
-              type: "personal_achievement",
+              plan_type: "personal_achievement",
               priority: "medium",
             }
           }
@@ -452,7 +452,7 @@ export default function ActionPlansPage() {
             </Form.Item>
 
             <Form.Item
-              name="type"
+              name="plan_type"
               label="Plan Type"
               rules={[{ required: true }]}
             >

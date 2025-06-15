@@ -1,42 +1,73 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  addReflection,
-  deleteReflection,
   getReflections,
+  createReflection,
   updateReflection,
+  deleteReflection,
+  getUserStats,
+  Reflection,
 } from "../apis/gamification";
 import { DefaultReflection } from "@/constants/default-reflection";
 import { useInvalidateQueries } from "../apis/invalidate-queries";
+import { useAuth } from "@/contexts/AuthContext";
 
-export const useGetReflections = () => {
+// Reflections hooks
+export const useReflections = () => {
   return useQuery({
-    queryKey: ["reflections"],
+    queryKey: ["user", "reflections"],
     queryFn: getReflections,
+    staleTime: 30000, // 30 seconds
   });
 };
 
-export const useAddReflection = () => {
-  const { invalidateQuestsQuery } = useInvalidateQueries();
+export const useCreateReflection = () => {
+  const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: addReflection,
+    mutationFn: createReflection,
     onSuccess: () => {
-      invalidateQuestsQuery();
+      queryClient.invalidateQueries({ queryKey: ["user", "reflections"] });
+      queryClient.invalidateQueries({ queryKey: ["user", "stats"] });
+      queryClient.invalidateQueries({ queryKey: ["user", "streakStats"] });
+      queryClient.invalidateQueries({ queryKey: ["user", "quests"] });
+    },
+  });
+};
+
+export const useUpdateReflection = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      reflectionId,
+      data,
+    }: {
+      reflectionId: string;
+      data: { mood: string; note: string; tags: string[] };
+    }) => updateReflection(reflectionId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user", "reflections"] });
     },
   });
 };
 
 export const useDeleteReflection = () => {
+  const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: (body: { reflectionId: string }) =>
-      deleteReflection(body.reflectionId),
+    mutationFn: deleteReflection,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user", "reflections"] });
+      queryClient.invalidateQueries({ queryKey: ["user", "stats"] });
+    },
   });
 };
 
-export const useUpdateReflection = () => {
-  return useMutation({
-    mutationFn: (body: {
-      reflectionId: string;
-      reflection: Partial<DefaultReflection>;
-    }) => updateReflection(body.reflectionId, body.reflection),
+// User stats hook
+export const useUserStats = () => {
+  return useQuery({
+    queryKey: ["user", "stats"],
+    queryFn: getUserStats,
+    staleTime: 30000, // 30 seconds
   });
 };

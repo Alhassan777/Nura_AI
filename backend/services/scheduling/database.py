@@ -12,4 +12,12 @@ _manager = get_database_manager("scheduling")
 # Export the get_db function for compatibility
 def get_db():
     """Get database session for scheduling service."""
-    return _manager.get_db()
+    session = _manager.SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
+    finally:
+        session.close()

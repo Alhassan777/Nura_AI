@@ -2,9 +2,8 @@ import { MOOD_OPTIONS } from "@/constants/calendar";
 import { Input, message, Modal, Select } from "antd";
 import React, { useState } from "react";
 import { TagSelector } from "../common/TagSelector";
-import { Reflection } from "@/types/reflection";
+import { Reflection } from "@/services/apis/gamification";
 import { useUpdateReflection } from "@/services/hooks/use-gamification";
-import { useInvalidateQueries } from "@/services/apis/invalidate-queries";
 
 export const EditReflectionModal = ({
   selectedReflection,
@@ -22,8 +21,6 @@ export const EditReflectionModal = ({
   const { mutateAsync: updateReflection, isPending: isUpdating } =
     useUpdateReflection();
 
-  const { invalidateReflectionsQuery } = useInvalidateQueries();
-
   if (!editReflection) return null;
 
   return (
@@ -34,9 +31,12 @@ export const EditReflectionModal = ({
         try {
           await updateReflection({
             reflectionId: editReflection.id,
-            reflection: editReflection,
+            data: {
+              mood: editReflection.mood,
+              note: editReflection.note,
+              tags: editReflection.tags,
+            },
           });
-          await invalidateReflectionsQuery();
           message.success("Reflection updated");
           onClose();
         } catch (error) {
@@ -86,9 +86,19 @@ export const EditReflectionModal = ({
           />
         </div>
         <div>
-          <TagSelector
-            value={editReflection.tags || []}
-            onChange={(tags) => setEditReflection({ ...editReflection, tags })}
+          <div className="mb-1 font-medium">Tags</div>
+          <Input
+            value={editReflection.tags.join(", ")}
+            onChange={(e) =>
+              setEditReflection({
+                ...editReflection,
+                tags: e.target.value
+                  .split(",")
+                  .map((t) => t.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="Enter tags separated by commas"
           />
         </div>
       </div>

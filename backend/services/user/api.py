@@ -23,6 +23,7 @@ from utils.auth import get_current_user_id, get_authenticated_user, Authenticate
 from .sync_service import sync_service
 from models import ServiceType
 from .database import get_db
+from utils.database import get_db_context
 from ..memory.config import Config
 
 logger = logging.getLogger(__name__)
@@ -351,16 +352,14 @@ async def handle_supabase_auth_webhook(
         logger.error(f"Error handling Supabase webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# Health and Debug Endpoints
-
+    # Health and Debug Endpoints
 
     overall_healthy = True
 
     try:
         # Test database connection
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 db.execute("SELECT 1")
             health_status["checks"]["database"] = {
                 "status": "healthy",

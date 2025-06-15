@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from models import VoiceCall, CallSummary, WebhookEvent
 from .config import config
 from .database import get_db
+from utils.database import get_db_context
 from .user_integration import VoiceUserIntegration
 from .vapi_tools_registry import vapi_tools_registry
 from .scheduling_integration import handle_vapi_tool_call
@@ -797,7 +798,7 @@ class VAPIWebhookRouter:
     async def _check_operation_status(self, operation_type: str) -> Dict[str, Any]:
         """Check status of recent operations."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 from datetime import timedelta
 
                 recent_time = datetime.utcnow() - timedelta(minutes=5)
@@ -828,7 +829,7 @@ class VAPIWebhookRouter:
     async def _log_webhook_event(self, payload: Dict[str, Any]) -> None:
         """Log webhook event to database."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 event = WebhookEvent(
                     event_type=payload.get("message", {}).get("type", "unknown"),
                     payload_data=payload,
@@ -841,7 +842,7 @@ class VAPIWebhookRouter:
     async def _store_call_summary(self, call_data: Dict[str, Any]) -> None:
         """Store call summary without transcript."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 call_id = call_data.get("id")
                 analysis = call_data.get("analysis", {})
 
@@ -880,7 +881,7 @@ class VAPIWebhookRouter:
     ) -> None:
         """Update call metadata."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 call_record = (
                     db.query(VoiceCall)
                     .filter(VoiceCall.vapi_call_id == call_id)
@@ -898,7 +899,7 @@ class VAPIWebhookRouter:
     async def _mark_call_ended(self, call_id: str, end_reason: str) -> None:
         """Mark call as ended."""
         try:
-            with get_db() as db:
+            with get_db_context() as db:
                 call_record = (
                     db.query(VoiceCall)
                     .filter(VoiceCall.vapi_call_id == call_id)
