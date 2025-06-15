@@ -381,7 +381,6 @@ class MultiModalChatService:
                     user_id=user_id,
                     query=message,
                     conversation_id=conversation_id,
-                    limit=3,  # Just a few recent memories for context
                 )
 
                 if memory_context and (

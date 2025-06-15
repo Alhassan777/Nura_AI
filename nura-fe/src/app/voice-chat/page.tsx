@@ -2,7 +2,16 @@
 
 import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button, Typography, Space, Badge, Avatar, Modal } from "antd";
+import {
+  Button,
+  Typography,
+  Space,
+  Badge,
+  Avatar,
+  Modal,
+  Input,
+  message as antMessage,
+} from "antd";
 import {
   Phone,
   PhoneCall,
@@ -17,6 +26,7 @@ import {
 } from "lucide-react";
 import { VoiceChat } from "@/components/voice/VoiceChat";
 import { useRouter } from "next/navigation";
+import { voiceApi } from "@/services/apis/voice";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -26,6 +36,9 @@ export default function VoiceChatPage() {
   const router = useRouter();
   const [callMode, setCallMode] = useState<CallMode>("idle");
   const [showIncomingCall, setShowIncomingCall] = useState(false);
+  const [showPhoneNumberModal, setShowPhoneNumberModal] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [isInitiatingCall, setIsInitiatingCall] = useState(false);
 
   const handleCallNura = () => {
     setCallMode("outgoing");
@@ -36,8 +49,85 @@ export default function VoiceChatPage() {
   };
 
   const handleNuraCallsYou = () => {
-    setShowIncomingCall(true);
-    setCallMode("incoming");
+    setShowPhoneNumberModal(true);
+  };
+
+  const handleInitiateOutboundCall = async () => {
+    if (!phoneNumber.trim()) {
+      antMessage.error("Please enter a valid phone number");
+      return;
+    }
+
+    setIsInitiatingCall(true);
+
+    try {
+      // Format phone number (remove spaces, dashes, parentheses)
+      const formattedPhone = phoneNumber.replace(/[\s\-\(\)\.]/g, "");
+
+      // Validate phone number format (basic validation)
+      const phoneRegex = /^\+?[1-9]\d{7,14}$/;
+      if (!phoneRegex.test(formattedPhone)) {
+        antMessage.error(
+          "Please enter a valid phone number with country code (e.g., +1234567890)"
+        );
+        return;
+      }
+
+      // Ensure phone number starts with +
+      const finalPhone = formattedPhone.startsWith("+")
+        ? formattedPhone
+        : `+${formattedPhone}`;
+
+      // Get assistant ID with fallback
+      const assistantId = process.env.NEXT_PUBLIC_VAPI_DEFAULT_ASSISTANT_ID;
+      if (!assistantId) {
+        antMessage.error(
+          "Assistant configuration is missing. Please contact support."
+        );
+        return;
+      }
+
+      // Make the outbound call
+      const response = await voiceApi.createPhoneCall({
+        assistant_id: assistantId,
+        phone_number: finalPhone,
+        metadata: {
+          request_type: "user_requested_callback",
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+      if (response.call_id) {
+        antMessage.success(
+          "Call initiated! Nura will call you shortly at " + finalPhone
+        );
+        setShowPhoneNumberModal(false);
+        setPhoneNumber("");
+
+        // Show confirmation that call is being initiated
+        Modal.success({
+          title: "Call Requested",
+          content: `Nura is calling you at ${finalPhone}. Please answer when your phone rings!`,
+          onOk: () => {
+            router.push("/chat");
+          },
+        });
+      }
+    } catch (error: any) {
+      console.error("Error initiating outbound call:", error);
+
+      // Better error handling
+      let errorMessage = "Failed to initiate call. Please try again.";
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      antMessage.error(errorMessage);
+    } finally {
+      setIsInitiatingCall(false);
+    }
   };
 
   const handleAnswerCall = () => {
@@ -52,6 +142,8 @@ export default function VoiceChatPage() {
 
   const handleEndCall = () => {
     setCallMode("idle");
+    // Redirect to chat page after call ends
+    router.push("/chat");
   };
 
   const handleSwitchToText = () => {
@@ -255,6 +347,63 @@ export default function VoiceChatPage() {
           <div className="flex justify-center gap-8 text-sm text-gray-600">
             <span>Answer</span>
             <span>Decline</span>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Phone Number Modal */}
+      <Modal
+        open={showPhoneNumberModal}
+        closable={false}
+        footer={null}
+        width={400}
+        centered
+      >
+        <div className="text-center space-y-6 py-4">
+          <div>
+            <Title level={3} className="!mb-2">
+              Enter Your Phone Number
+            </Title>
+            <Text className="text-gray-600">
+              We'll call you at the number you provide.
+            </Text>
+          </div>
+
+          <Input
+            type="tel"
+            placeholder="e.g., +1 555-123-4567"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            className="w-full"
+            size="large"
+          />
+
+          <Paragraph className="text-sm text-gray-500 !mb-0">
+            Enter your phone number with country code (e.g., +1 for US)
+          </Paragraph>
+
+          <div className="flex gap-3">
+            <Button
+              size="large"
+              onClick={() => {
+                setShowPhoneNumberModal(false);
+                setPhoneNumber("");
+              }}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="primary"
+              size="large"
+              icon={<Phone className="h-5 w-5" />}
+              onClick={handleInitiateOutboundCall}
+              loading={isInitiatingCall}
+              className="flex-1 bg-purple-600 hover:bg-purple-700"
+              disabled={!phoneNumber.trim()}
+            >
+              {isInitiatingCall ? "Initiating Call..." : "Request Call"}
+            </Button>
           </div>
         </div>
       </Modal>

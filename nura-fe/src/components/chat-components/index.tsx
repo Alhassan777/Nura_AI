@@ -1,8 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Tabs as AntdTabs, Segmented, Space } from "antd";
-import { Bot, Brain, Database, Shield, Clock, Heart } from "lucide-react";
+import { Tabs as AntdTabs, Segmented, Space, Button } from "antd";
+import {
+  Bot,
+  Brain,
+  Database,
+  Shield,
+  Clock,
+  Heart,
+  ExternalLink,
+} from "lucide-react";
+import Link from "next/link";
 import MemoryPrivacyManager from "@/components/chat-components/MemoryPrivacyManager";
 import { MemoryContext, MemoryStats } from "./types";
 import ServerHealthStatus from "./server-health-status";
@@ -19,10 +28,30 @@ import { EmotionalAnchorMemories } from "./EmotionalAnchorMemories";
 
 export const ChatComponent = () => {
   const [userId] = useState(() => `test-user-${Date.now()}`);
-  const [conversationId] = useState(
-    () =>
-      `conversation-${Date.now()}-${Math.random().toString(36).substring(2)}`
-  );
+
+  // Use a persistent conversation ID that survives page reloads for the same session
+  const [conversationId] = useState(() => {
+    // Try to get existing conversation ID from sessionStorage
+    if (typeof window !== "undefined") {
+      const existingId = sessionStorage.getItem("currentConversationId");
+      if (existingId) {
+        return existingId;
+      }
+    }
+
+    // Create new conversation ID for this session
+    const newConversationId = `conversation-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2)}`;
+
+    // Store it for this session
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("currentConversationId", newConversationId);
+    }
+
+    return newConversationId;
+  });
+
   const [activeTab, setActiveTab] = useState("chat");
 
   const [memoryContext, setMemoryContext] = useState<MemoryContext | null>(
@@ -31,19 +60,37 @@ export const ChatComponent = () => {
   const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null);
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
 
+  const startNewConversation = () => {
+    const newConversationId = `conversation-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2)}`;
+
+    // Update sessionStorage with new conversation ID
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("currentConversationId", newConversationId);
+    }
+
+    // Force page reload to use new conversation ID
+    window.location.reload();
+  };
+
   const { mutateAsync: sendMessage } = useSendMessage();
 
   const loadMemories = useCallback(async () => {
     setIsLoadingMemories(true);
     try {
-      // Load memories for this specific conversation
-      const allMemoriesResponse = await axiosInstance.get(
-        `/memory/all-long-term?conversation_id=${conversationId}`
-      );
-      const contextResponse = await axiosInstance.post("/memory/context", {
-        query: "",
-        conversation_id: conversationId,
-      });
+      // Load memories ONLY for this specific conversation
+      const [allMemoriesResponse, contextResponse, statsResponse] =
+        await Promise.all([
+          axiosInstance.get(
+            `/memory/all-long-term?conversation_id=${conversationId}`
+          ),
+          axiosInstance.post("/memory/context", {
+            query: "",
+            conversation_id: conversationId,
+          }),
+          axiosInstance.get("/memory/stats"),
+        ]);
 
       if (
         allMemoriesResponse.status === 200 &&
@@ -51,25 +98,28 @@ export const ChatComponent = () => {
       ) {
         const allMemoriesData = allMemoriesResponse.data;
         const contextData = contextResponse.data;
+        const memoriesCount =
+          (allMemoriesData.regular_memories?.length || 0) +
+          (allMemoriesData.emotional_anchors?.length || 0);
 
         setMemoryContext({
           short_term: contextData.context?.short_term || [],
           long_term: allMemoriesData.regular_memories || [],
           emotional_anchors: allMemoriesData.emotional_anchors || [],
-          digest: `${
-            allMemoriesData.counts?.total || 0
-          } total memories found in this conversation`,
+          digest: `${memoriesCount} memories found in this conversation only`,
         });
-      }
 
-      const statsResponse = await axiosInstance.get("/memory/stats");
+        console.log(
+          `Loaded ${memoriesCount} memories for conversation: ${conversationId}`
+        );
+      }
 
       if (statsResponse.status === 200) {
         const statsData = statsResponse.data;
         setMemoryStats(statsData.stats);
       }
     } catch (error) {
-      console.error("Error loading memories:", error);
+      console.error("Error loading conversation memories:", error);
     } finally {
       setIsLoadingMemories(false);
     }
@@ -162,12 +212,36 @@ export const ChatComponent = () => {
       <ServerHealthStatus userId={userId} />
 
       {/* Conversation Info */}
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
-        <div className="text-sm text-gray-600">
-          <span className="font-medium">Conversation:</span> {conversationId}
+      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+        <div className="text-sm text-gray-700">
+          <span className="font-medium">Current Session:</span>{" "}
+          {conversationId.slice(-8)}...
+          <span className="text-xs text-gray-500 ml-2">
+            (persists until "New Chat")
+          </span>
         </div>
-        <div className="text-xs text-gray-500 mt-1">
-          Memories in this conversation will be filtered to this chat session
+        <div className="text-xs text-blue-600 mt-1 font-medium flex items-center justify-between">
+          <span>💡 Memory tabs show only memories from THIS conversation.</span>
+          <div className="flex gap-2">
+            <Button
+              onClick={startNewConversation}
+              size="small"
+              type="default"
+              className="text-xs h-6"
+            >
+              New Chat
+            </Button>
+            <Link href="/memories">
+              <Button
+                type="link"
+                size="small"
+                icon={<ExternalLink className="h-3 w-3" />}
+                className="text-blue-600 hover:text-blue-800 p-0 h-auto"
+              >
+                View All Memories
+              </Button>
+            </Link>
+          </div>
         </div>
       </div>
 

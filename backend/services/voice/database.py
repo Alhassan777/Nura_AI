@@ -24,14 +24,30 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@contextmanager
 def get_db() -> Generator[Session, None, None]:
     """
-    Database session context manager.
+    Database session dependency for FastAPI.
 
-    Works for both:
-    1. FastAPI dependency injection: db: Session = Depends(get_db)
-    2. Manual context manager: with get_db_context() as db:
+    This function creates and yields a database session,
+    automatically handling cleanup and error recovery.
+    """
+    session = SessionLocal()
+    try:
+        yield session
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Database session error: {e}")
+        raise
+    finally:
+        session.close()
+
+
+@contextmanager
+def get_db_context() -> Generator[Session, None, None]:
+    """
+    Database session context manager for manual usage.
+
+    Use with: with get_db_context() as db:
 
     Ensures proper cleanup and error handling.
     """

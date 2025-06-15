@@ -68,7 +68,7 @@ export const LongTermMemories: React.FC<LongTermMemoriesProps> = ({
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Brain className="h-5 w-5 text-green-500" />
-            <span>Long-term Memories</span>
+            <span>Long-term Memories (This Conversation)</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -86,7 +86,7 @@ export const LongTermMemories: React.FC<LongTermMemoriesProps> = ({
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Brain className="h-5 w-5 text-green-500" />
-            <span>Long-term Memories</span>
+            <span>Long-term Memories (This Conversation)</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -112,7 +112,7 @@ export const LongTermMemories: React.FC<LongTermMemoriesProps> = ({
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Brain className="h-5 w-5 text-green-500" />
-            <span>Long-term Memories</span>
+            <span>Long-term Memories (This Conversation)</span>
             <Tag color="green">{longTermMemories.length}</Tag>
           </CardTitle>
         </CardHeader>
@@ -125,11 +125,13 @@ export const LongTermMemories: React.FC<LongTermMemoriesProps> = ({
                 false;
               const detectedItems = memory.metadata?.detected_items || [];
 
+              // Ensure unique keys by combining ID with index and memory type
+              const uniqueKey = memory.id
+                ? `long-term-${memory.id}-${index}`
+                : `long-term-memory-${index}`;
+
               return (
-                <Card
-                  key={memory.id || index}
-                  className="bg-green-50 border-green-200"
-                >
+                <Card key={uniqueKey} className="bg-green-50 border-green-200">
                   <CardContent className="p-4">
                     <div className="flex items-start space-x-3">
                       <MessageCircle className="h-4 w-4 text-green-500 mt-1 flex-shrink-0" />

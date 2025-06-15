@@ -4,6 +4,10 @@ Configuration for Voice Service.
 
 import os
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class VoiceConfig:
@@ -16,6 +20,7 @@ class VoiceConfig:
         self.VAPI_SERVER_SECRET = os.getenv("VAPI_SERVER_SECRET", "")
         self.VAPI_BASE_URL = os.getenv("VAPI_BASE_URL", "https://api.vapi.ai")
         self.VAPI_ASSISTANT_ID = os.getenv("VAPI_ASSISTANT_ID")
+        self.VAPI_PHONE_NUMBER_ID = os.getenv("VAPI_PHONE_NUMBER_ID")
         self.WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
         self.DEFAULT_ASSISTANT_ID = os.getenv(
             "VAPI_DEFAULT_ASSISTANT_ID", "default-assistant"

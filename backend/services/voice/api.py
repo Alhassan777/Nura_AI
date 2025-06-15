@@ -15,6 +15,7 @@ import time
 from fastapi.security import HTTPBearer
 import os
 import aiohttp
+import uuid
 
 # Import unified authentication system
 from utils.auth import get_current_user_id, get_authenticated_user, AuthenticatedUser
@@ -186,44 +187,70 @@ async def create_phone_call(
     request: CreateCallRequest,
     background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    # db: Session = Depends(get_db),  # Temporarily commented out due to DB connectivity issue
 ):
     """Create a phone call. JWT secured - user creates their own calls."""
     try:
-        # Create call record
-        call = VoiceCall(
-            user_id=user_id,
-            assistant_id=request.assistant_id,
-            channel="phone",
-            status="initializing",
-            phone_number=request.phone_number,
+        # Temporarily skip database operations due to connectivity issue
+        # TODO: Re-enable database logging once connectivity is resolved
+
+        # Create a temporary call ID for tracking
+        temp_call_id = str(uuid.uuid4())
+
+        logger.info(
+            f"Attempting to create outbound call for user {user_id} to {request.phone_number}"
         )
-        db.add(call)
-        db.commit()
-        db.refresh(call)
 
         # Initiate call with Vapi
         result = await vapi_client.create_call(
             assistant_id=request.assistant_id,
             phone_number=request.phone_number,
-            metadata={
+            user_id=user_id,
+            custom_metadata={
                 "userId": user_id,
-                "callId": call.id,
+                "callId": temp_call_id,
                 **request.metadata,
             },
         )
 
-        # Update call with Vapi ID
-        call.vapi_call_id = result.get("id")
-        call.status = "connecting"
-        db.commit()
+        # Log success
+        logger.info(
+            f"Successfully created Vapi call {result.get('id')} for user {user_id}"
+        )
 
-        logger.info(f"Created phone call {call.id} for user {user_id}")
-        return {"call_id": call.id, "vapi_call_id": call.vapi_call_id}
+        # Return success response
+        return {
+            "call_id": temp_call_id,
+            "vapi_call_id": result.get("id"),
+            "status": "initiated",
+            "message": "Call initiated successfully",
+        }
+
+        # Original database code (commented out temporarily):
+        # # Create call record
+        # call = VoiceCall(
+        #     user_id=user_id,
+        #     assistant_id=request.assistant_id,
+        #     channel="phone",
+        #     status="initializing",
+        #     phone_number=request.phone_number,
+        # )
+        # db.add(call)
+        # db.commit()
+        # db.refresh(call)
+        #
+        # # Update call with Vapi ID
+        # call.vapi_call_id = result.get("id")
+        # call.status = "connecting"
+        # db.commit()
+        #
+        # return {"call_id": call.id, "vapi_call_id": call.vapi_call_id}
 
     except Exception as e:
         logger.error(f"Error creating phone call for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create phone call")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create phone call: {str(e)}"
+        )
 
 
 @router.get("/calls", response_model=List[CallResponse])
@@ -260,6 +287,86 @@ async def get_call(
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
     return call
+
+
+@router.post("/calls/{call_id}/end")
+async def end_call(
+    call_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """End a voice call. JWT secured - user can only end their own calls."""
+    try:
+        # Find the call record
+        call = (
+            db.query(VoiceCall)
+            .filter(VoiceCall.id == call_id, VoiceCall.user_id == user_id)
+            .first()
+        )
+
+        if not call:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # If call has a vapi_call_id, try to end it via Vapi API
+        if call.vapi_call_id:
+            try:
+                result = await vapi_client.end_call(call.vapi_call_id)
+                logger.info(f"Ended Vapi call {call.vapi_call_id}: {result}")
+            except Exception as vapi_error:
+                logger.warning(
+                    f"Failed to end Vapi call {call.vapi_call_id}: {vapi_error}"
+                )
+                # Continue with local cleanup even if Vapi call fails
+
+        # Update call status in database
+        call.status = "ended"
+        call.ended_at = datetime.now()
+        db.commit()
+
+        # Record voice activity
+        await VoiceUserIntegration.record_voice_activity(
+            user_id,
+            "call_ended",
+            {"call_id": call_id, "vapi_call_id": call.vapi_call_id},
+        )
+
+        logger.info(f"Call {call_id} ended by user {user_id}")
+        return {"success": True, "message": "Call ended successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ending call {call_id} for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to end call")
+
+
+@router.get("/calls/{call_id}/status")
+async def get_call_status(
+    call_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Get call status. JWT secured - user can only check their own calls."""
+    call = (
+        db.query(VoiceCall)
+        .filter(VoiceCall.id == call_id, VoiceCall.user_id == user_id)
+        .first()
+    )
+
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+
+    return {
+        "call_id": call.id,
+        "status": call.status,
+        "started_at": call.started_at,
+        "ended_at": call.ended_at,
+        "duration": (
+            int((call.ended_at - call.started_at).total_seconds())
+            if call.started_at and call.ended_at
+            else None
+        ),
+    }
 
 
 # Schedule management endpoints

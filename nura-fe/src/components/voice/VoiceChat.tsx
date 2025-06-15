@@ -54,13 +54,6 @@ export const VoiceChat: React.FC<VoiceChatProps> = ({
     },
   });
 
-  // Initialize Vapi connection when component mounts
-  useEffect(() => {
-    if (!utils.isInitialized) {
-      actions.initializeVapi();
-    }
-  }, [utils.isInitialized, actions]);
-
   // Handle call start/stop
   const handleStartCall = async () => {
     if (!state.isConnected) return;

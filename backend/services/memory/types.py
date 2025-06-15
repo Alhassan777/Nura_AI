@@ -62,6 +62,25 @@ class MemoryStats:
     short_term: int
     long_term: int
     sensitive: int
+    emotional_anchors: int = 0
+    categories: Optional[Dict[str, int]] = None
+    recent_activity: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        """Initialize default values for optional fields."""
+        if self.categories is None:
+            self.categories = {
+                "short_term": self.short_term,
+                "long_term": self.long_term,
+                "emotional_anchor": self.emotional_anchors,
+            }
+
+        if self.recent_activity is None:
+            self.recent_activity = {
+                "memories_added_today": 0,
+                "memories_added_this_week": 0,
+                "last_memory_timestamp": None,
+            }
 
     # Backward compatibility properties
     @property
@@ -73,11 +92,6 @@ class MemoryStats:
         return self.long_term
 
     @property
-    def emotional_anchors(self) -> int:
-        # This would need to be computed separately, return 0 for now
-        return 0
-
-    @property
     def regular_memories(self) -> int:
         # This would be long_term minus emotional_anchors
-        return self.long_term
+        return self.long_term - self.emotional_anchors

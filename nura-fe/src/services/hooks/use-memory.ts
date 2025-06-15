@@ -14,7 +14,7 @@ export const useSearchMemories = (params: MemorySearchParams) => {
 export const useMemoryStats = (userId: string) => {
   return useQuery({
     queryKey: ["memory", "stats", userId],
-    queryFn: () => memoryApi.getDetailedStats(userId),
+    queryFn: () => memoryApi.getDetailedStats(),
     enabled: !!userId,
   });
 };

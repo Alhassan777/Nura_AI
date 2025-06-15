@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Button,
@@ -41,6 +41,14 @@ import { MemoryCard } from "@/components/memory/MemoryCard";
 import { MemoryStats } from "@/components/memory/MemoryStats";
 import { BulkOperations } from "@/components/memory/BulkOperations";
 import { PendingConsentMemories } from "@/components/memory/PendingConsentMemories";
+import { memoryApi } from "@/services/apis/memory";
+import {
+  useDeleteMemory,
+  useDeleteMultipleMemories,
+  useExportMemories,
+  useUpdateMemoryMetadata,
+  useConvertToAnchor,
+} from "@/services/hooks/use-memory";
 
 export default function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -49,14 +57,70 @@ export default function MemoriesPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [memories, setMemories] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [totalMemories, setTotalMemories] = useState(0);
 
   // TODO: Replace with actual user ID from auth context
   const userId = "test-user";
 
-  // Placeholder data - will be replaced with real hooks
-  const memories: any[] = [];
-  const isLoading = false;
-  const totalMemories = 0;
+  // React Query hooks for memory operations
+  const deleteMemoryMutation = useDeleteMemory();
+  const deleteMultipleMemoriesMutation = useDeleteMultipleMemories();
+  const exportMemoriesMutation = useExportMemories();
+  const updateMemoryMutation = useUpdateMemoryMetadata();
+  const convertToAnchorMutation = useConvertToAnchor();
+
+  // Load all memories from all conversations
+  useEffect(() => {
+    const loadAllMemories = async () => {
+      setIsLoading(true);
+      try {
+        // Load ALL memories from ALL conversations (no conversation_id filter)
+        const allMemoriesResponse =
+          await memoryApi.getAllMemoriesFromAllChats();
+
+        // Combine regular memories and emotional anchors
+        const allMemories = [
+          ...(allMemoriesResponse.regular_memories || []),
+          ...(allMemoriesResponse.emotional_anchors || []),
+        ];
+
+        // Deduplicate memories by content to handle component-based duplicates
+        const deduplicatedMemories = allMemories.reduce((acc, memory) => {
+          // Use content as deduplication key, with a fallback to ID
+          const dedupKey = memory.content || memory.id;
+          if (
+            !acc.find(
+              (existing) =>
+                existing.content === dedupKey || existing.id === memory.id
+            )
+          ) {
+            acc.push(memory);
+          }
+          return acc;
+        }, []);
+
+        setMemories(deduplicatedMemories);
+        setTotalMemories(deduplicatedMemories.length);
+
+        console.log(
+          `Loaded ${
+            deduplicatedMemories.length
+          } memories from all conversations for Memory Vault (${
+            allMemories.length - deduplicatedMemories.length
+          } duplicates removed)`
+        );
+      } catch (error) {
+        console.error("Error loading memories for Memory Vault:", error);
+        message.error("Failed to load memories");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAllMemories();
+  }, []);
 
   const handleDeleteMemory = (memoryId: string) => {
     Modal.confirm({
@@ -66,9 +130,17 @@ export default function MemoriesPage() {
       okText: "Delete",
       okType: "danger",
       cancelText: "Cancel",
-      onOk: () => {
-        // deleteMemoryMutation.mutate(memoryId);
-        message.success("Memory deleted successfully");
+      onOk: async () => {
+        try {
+          await deleteMemoryMutation.mutateAsync(memoryId);
+          // Remove from local state immediately for better UX
+          setMemories((prev) => prev.filter((m) => m.id !== memoryId));
+          setTotalMemories((prev) => prev - 1);
+          message.success("Memory deleted successfully");
+        } catch (error) {
+          console.error("Error deleting memory:", error);
+          message.error("Failed to delete memory");
+        }
       },
     });
   };
@@ -85,19 +157,34 @@ export default function MemoriesPage() {
       okText: "Delete All",
       okType: "danger",
       cancelText: "Cancel",
-      onOk: () => {
-        // deleteMultipleMemoriesMutation.mutate(selectedMemories);
-        setSelectedMemories([]);
-        message.success(
-          `${selectedMemories.length} memories deleted successfully`
-        );
+      onOk: async () => {
+        try {
+          await deleteMultipleMemoriesMutation.mutateAsync(selectedMemories);
+          // Remove from local state immediately for better UX
+          setMemories((prev) =>
+            prev.filter((m) => !selectedMemories.includes(m.id))
+          );
+          setTotalMemories((prev) => prev - selectedMemories.length);
+          const deletedCount = selectedMemories.length;
+          setSelectedMemories([]);
+          message.success(`${deletedCount} memories deleted successfully`);
+        } catch (error) {
+          console.error("Error deleting memories:", error);
+          message.error("Failed to delete selected memories");
+        }
       },
     });
   };
 
-  const handleExportMemories = () => {
-    // exportMemoriesMutation.mutate({ userId, format: 'json' });
-    message.info("Exporting memories... Download will start shortly.");
+  const handleExportMemories = async () => {
+    try {
+      message.info("Exporting memories... Download will start shortly.");
+      await exportMemoriesMutation.mutateAsync({ userId, format: "json" });
+      message.success("Memories exported successfully!");
+    } catch (error) {
+      console.error("Error exporting memories:", error);
+      message.error("Failed to export memories");
+    }
   };
 
   const handleSelectAll = (checked: boolean) => {
@@ -105,6 +192,42 @@ export default function MemoriesPage() {
       setSelectedMemories(memories.map((m) => m.id));
     } else {
       setSelectedMemories([]);
+    }
+  };
+
+  const handleEditMemory = async (memoryId: string, updates: any) => {
+    try {
+      await updateMemoryMutation.mutateAsync({ memoryId, metadata: updates });
+      // Update local state
+      setMemories((prev) =>
+        prev.map((m) => (m.id === memoryId ? { ...m, ...updates } : m))
+      );
+      message.success("Memory updated successfully");
+    } catch (error) {
+      console.error("Error updating memory:", error);
+      message.error("Failed to update memory");
+    }
+  };
+
+  const handleConvertToAnchor = async (memoryId: string) => {
+    try {
+      await convertToAnchorMutation.mutateAsync({ memoryId });
+      // Update local state to reflect the change
+      setMemories((prev) =>
+        prev.map((m) =>
+          m.id === memoryId
+            ? {
+                ...m,
+                memory_category: "emotional_anchor",
+                is_emotional_anchor: true,
+              }
+            : m
+        )
+      );
+      message.success("Memory converted to emotional anchor successfully");
+    } catch (error) {
+      console.error("Error converting memory to anchor:", error);
+      message.error("Failed to convert memory to emotional anchor");
     }
   };
 
@@ -117,7 +240,8 @@ export default function MemoriesPage() {
             Memory Vault
           </h1>
           <p className="text-gray-600 dark:text-gray-300 mt-2">
-            Manage your long-term memories and emotional anchors
+            All your long-term memories and emotional anchors from every
+            conversation
           </p>
         </div>
 
@@ -250,29 +374,31 @@ export default function MemoriesPage() {
             />
           ) : (
             <div className="space-y-4">
-              {memories.map((memory) => (
-                <MemoryCard
-                  key={memory.id}
-                  memory={memory}
-                  isSelected={selectedMemories.includes(memory.id)}
-                  onSelect={(selected) => {
-                    if (selected) {
-                      setSelectedMemories((prev) => [...prev, memory.id]);
-                    } else {
-                      setSelectedMemories((prev) =>
-                        prev.filter((id) => id !== memory.id)
-                      );
-                    }
-                  }}
-                  onDelete={handleDeleteMemory}
-                  onEdit={(id, updates) =>
-                    console.log("Edit memory:", id, updates)
-                  }
-                  onConvertToAnchor={(id) =>
-                    console.log("Convert to anchor:", id)
-                  }
-                />
-              ))}
+              {memories.map((memory, index) => {
+                // Ensure unique keys by combining ID with index and type
+                const uniqueKey = memory.id
+                  ? `${memory.id}-${index}`
+                  : `memory-${index}`;
+                return (
+                  <MemoryCard
+                    key={uniqueKey}
+                    memory={memory}
+                    isSelected={selectedMemories.includes(memory.id)}
+                    onSelect={(selected) => {
+                      if (selected) {
+                        setSelectedMemories((prev) => [...prev, memory.id]);
+                      } else {
+                        setSelectedMemories((prev) =>
+                          prev.filter((id) => id !== memory.id)
+                        );
+                      }
+                    }}
+                    onDelete={handleDeleteMemory}
+                    onEdit={handleEditMemory}
+                    onConvertToAnchor={handleConvertToAnchor}
+                  />
+                );
+              })}
             </div>
           )}
 

@@ -11,6 +11,17 @@ export interface BrowserCallResponse {
   publicKey: string;
 }
 
+export interface PhoneCallRequest {
+  assistant_id: string;
+  phone_number: string;
+  metadata?: Record<string, any>;
+}
+
+export interface PhoneCallResponse {
+  call_id: string;
+  vapi_call_id?: string;
+}
+
 export interface CallStatus {
   call_id: string;
   status: string;
@@ -45,6 +56,14 @@ export const voiceApi = {
     request: BrowserCallRequest
   ): Promise<BrowserCallResponse> => {
     const response = await axiosInstance.post("/voice/calls/browser", request);
+    return response.data;
+  },
+
+  // Create an outbound phone call
+  createPhoneCall: async (
+    request: PhoneCallRequest
+  ): Promise<PhoneCallResponse> => {
+    const response = await axiosInstance.post("/voice/calls/phone", request);
     return response.data;
   },
 

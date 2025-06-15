@@ -54,48 +54,9 @@ export const useVapi = (options: UseVapiOptions = {}) => {
   const vapiRef = useRef<Vapi | null>(null);
   const callStartTimeRef = useRef<number>(0);
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitializedRef = useRef<boolean>(false);
 
-  // Initialize Vapi instance
-  const initializeVapi = useCallback(async () => {
-    try {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }));
-
-      // Get configuration from backend
-      const callConfig = await voiceApi.initiateBrowserCall({
-        assistant_id: assistantId,
-        metadata: {
-          timestamp: new Date().toISOString(),
-          channel: "web",
-        },
-      });
-
-      // Initialize Vapi with public key
-      vapiRef.current = new Vapi(callConfig.publicKey);
-
-      // Set up event listeners
-      setupEventListeners();
-
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        isConnected: true,
-        callId: callConfig.metadata.callId,
-      }));
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Failed to initialize voice connection";
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: errorMessage,
-      }));
-      onError?.(errorMessage);
-    }
-  }, [assistantId, onError]);
-
-  // Set up Vapi event listeners
+  // Set up Vapi event listeners - moved before initializeVapi to avoid dependency issues
   const setupEventListeners = useCallback(() => {
     const vapi = vapiRef.current;
     if (!vapi) return;
@@ -168,7 +129,54 @@ export const useVapi = (options: UseVapiOptions = {}) => {
       setState((prev) => ({ ...prev, error: errorMessage }));
       onError?.(errorMessage);
     });
-  }, [onCallStart, onCallEnd, onMessage, onError]);
+  }, []); // Empty dependency array to prevent re-creation
+
+  // Initialize Vapi instance
+  const initializeVapi = useCallback(async () => {
+    // Prevent multiple initializations
+    if (vapiRef.current || isInitializedRef.current) {
+      return;
+    }
+
+    try {
+      isInitializedRef.current = true;
+      setState((prev) => ({ ...prev, isLoading: true, error: null }));
+
+      // Get configuration from backend
+      const callConfig = await voiceApi.initiateBrowserCall({
+        assistant_id: assistantId,
+        metadata: {
+          timestamp: new Date().toISOString(),
+          channel: "web",
+        },
+      });
+
+      // Initialize Vapi with public key
+      vapiRef.current = new Vapi(callConfig.publicKey);
+
+      // Set up event listeners
+      setupEventListeners();
+
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        isConnected: true,
+        callId: callConfig.metadata.callId,
+      }));
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to initialize voice connection";
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: errorMessage,
+      }));
+      onError?.(errorMessage);
+      isInitializedRef.current = false; // Reset on error
+    }
+  }, [assistantId, setupEventListeners]); // Stable dependencies
 
   // Start call duration timer
   const startDurationTimer = useCallback(() => {
@@ -213,23 +221,40 @@ export const useVapi = (options: UseVapiOptions = {}) => {
       setState((prev) => ({ ...prev, isLoading: false, error: errorMessage }));
       onError?.(errorMessage);
     }
-  }, [assistantId, state.isCallActive, onError]);
+  }, [assistantId, state.isCallActive]);
 
   // End voice call
   const endCall = useCallback(async () => {
-    if (!vapiRef.current || !state.isCallActive) return;
+    if (!vapiRef.current) return;
 
     try {
+      // Stop the Vapi call
       await vapiRef.current.stop();
 
       // Optionally notify backend about call end
       if (state.callId) {
-        await voiceApi.endCall(state.callId);
+        try {
+          await voiceApi.endCall(state.callId);
+        } catch (backendError) {
+          console.warn(
+            "Failed to notify backend about call end:",
+            backendError
+          );
+          // Don't fail the call end if backend notification fails
+        }
       }
+
+      // Reset state
+      setState((prev) => ({
+        ...prev,
+        isCallActive: false,
+        isAssistantSpeaking: false,
+        callDuration: 0,
+      }));
     } catch (error) {
       console.error("Error ending call:", error);
     }
-  }, [state.isCallActive, state.callId]);
+  }, [state.callId]);
 
   // Toggle mute
   const toggleMute = useCallback(() => {
@@ -275,6 +300,11 @@ export const useVapi = (options: UseVapiOptions = {}) => {
       .padStart(2, "0")}`;
   }, []);
 
+  // Initialize once when component mounts
+  useEffect(() => {
+    initializeVapi();
+  }, []); // Empty dependency array - only run once
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -286,6 +316,7 @@ export const useVapi = (options: UseVapiOptions = {}) => {
           console.error("Error stopping Vapi:", error);
         }
       }
+      isInitializedRef.current = false;
     };
   }, [stopDurationTimer]);
 
@@ -301,7 +332,7 @@ export const useVapi = (options: UseVapiOptions = {}) => {
     },
     utils: {
       formatDuration,
-      isInitialized: !!vapiRef.current,
+      isInitialized: isInitializedRef.current,
     },
   };
 };

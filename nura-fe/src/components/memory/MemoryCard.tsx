@@ -95,7 +95,7 @@ export const MemoryCard: React.FC<MemoryCardProps> = ({
       className={`transition-all duration-200 hover:shadow-md ${
         isSelected ? "ring-2 ring-blue-500 bg-blue-50" : ""
       } ${isEmotionalAnchor ? "border-pink-200 bg-pink-50" : ""}`}
-      bodyStyle={{ padding: "16px" }}
+      styles={{ body: { padding: "16px" } }}
     >
       <div className="flex items-start space-x-3">
         {/* Selection Checkbox */}

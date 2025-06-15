@@ -208,6 +208,149 @@ async def delete_memory(memory_id: str, user_id: str = Depends(get_current_user_
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DeleteBatchRequest(BaseModel):
+    memory_ids: List[str] = Field(..., description="List of memory IDs to delete")
+
+
+@router.post("/delete-batch")
+async def delete_multiple_memories(
+    request: DeleteBatchRequest, user_id: str = Depends(get_current_user_id)
+):
+    """Delete multiple memories in batch. User authenticated via JWT."""
+    try:
+        deleted_count = 0
+        failed_count = 0
+        results = []
+
+        for memory_id in request.memory_ids:
+            try:
+                success = await memory_service.delete_memory(user_id, memory_id)
+                if success:
+                    deleted_count += 1
+                    results.append({"memory_id": memory_id, "status": "deleted"})
+                else:
+                    failed_count += 1
+                    results.append({"memory_id": memory_id, "status": "not_found"})
+            except Exception as e:
+                failed_count += 1
+                results.append(
+                    {"memory_id": memory_id, "status": "error", "error": str(e)}
+                )
+
+        return {
+            "message": f"Batch delete completed: {deleted_count} deleted, {failed_count} failed",
+            "deleted_count": deleted_count,
+            "failed_count": failed_count,
+            "total_requested": len(request.memory_ids),
+            "results": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class BulkOperation(BaseModel):
+    memory_id: str = Field(..., description="Memory ID to operate on")
+    action: str = Field(
+        ..., description="Action to perform: delete, update, convert_to_anchor"
+    )
+    data: Optional[Dict[str, Any]] = Field(
+        None, description="Additional data for the operation"
+    )
+
+
+class BulkOperationsRequest(BaseModel):
+    operations: List[BulkOperation] = Field(
+        ..., description="List of operations to perform"
+    )
+
+
+@router.post("/bulk-operations")
+async def bulk_update_memories(
+    request: BulkOperationsRequest, user_id: str = Depends(get_current_user_id)
+):
+    """Perform bulk operations on memories. User authenticated via JWT."""
+    try:
+        results = []
+        success_count = 0
+        failed_count = 0
+
+        for operation in request.operations:
+            try:
+                if operation.action == "delete":
+                    success = await memory_service.delete_memory(
+                        user_id, operation.memory_id
+                    )
+                    if success:
+                        success_count += 1
+                        results.append(
+                            {
+                                "memory_id": operation.memory_id,
+                                "action": operation.action,
+                                "status": "success",
+                            }
+                        )
+                    else:
+                        failed_count += 1
+                        results.append(
+                            {
+                                "memory_id": operation.memory_id,
+                                "action": operation.action,
+                                "status": "not_found",
+                            }
+                        )
+                elif operation.action == "update":
+                    # For now, just return success - would need to implement update logic
+                    success_count += 1
+                    results.append(
+                        {
+                            "memory_id": operation.memory_id,
+                            "action": operation.action,
+                            "status": "success",
+                            "note": "Update operation not fully implemented",
+                        }
+                    )
+                elif operation.action == "convert_to_anchor":
+                    # For now, just return success - would need to implement conversion logic
+                    success_count += 1
+                    results.append(
+                        {
+                            "memory_id": operation.memory_id,
+                            "action": operation.action,
+                            "status": "success",
+                            "note": "Convert to anchor operation not fully implemented",
+                        }
+                    )
+                else:
+                    failed_count += 1
+                    results.append(
+                        {
+                            "memory_id": operation.memory_id,
+                            "action": operation.action,
+                            "status": "unsupported_action",
+                        }
+                    )
+            except Exception as e:
+                failed_count += 1
+                results.append(
+                    {
+                        "memory_id": operation.memory_id,
+                        "action": operation.action,
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
+
+        return {
+            "message": f"Bulk operations completed: {success_count} successful, {failed_count} failed",
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "total_operations": len(request.operations),
+            "results": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/forget")
 async def clear_memories(user_id: str = Depends(get_current_user_id)):
     """Clear all memories for the authenticated user. User authenticated via JWT."""

@@ -81,18 +81,44 @@ class RetrievalProcessor:
             short_term_count = len(short_term_memories)
         except Exception:
             short_term_count = 0
+            short_term_memories = []
 
         try:
             long_term_memories = await self.vector_store.get_user_memories(user_id)
             long_term_count = len(long_term_memories)
         except Exception:
             long_term_count = 0
+            long_term_memories = []
+
+        # Count emotional anchors from both stores
+        emotional_anchors_count = 0
+        all_memories = []
+
+        # Add short-term memories to all_memories and count emotional anchors
+        for memory in short_term_memories:
+            all_memories.append(memory)
+            if memory.metadata.get("memory_category") == "emotional_anchor":
+                emotional_anchors_count += 1
+
+        # Add long-term memories to all_memories and count emotional anchors
+        for memory_dict in long_term_memories:
+            all_memories.append(memory_dict)
+            if (
+                memory_dict.get("metadata", {}).get("memory_category")
+                == "emotional_anchor"
+            ):
+                emotional_anchors_count += 1
+
+        # Calculate recent activity
+        recent_activity = await self._calculate_recent_activity(all_memories)
 
         return MemoryStats(
             total=short_term_count + long_term_count,
             short_term=short_term_count,
             long_term=long_term_count,
             sensitive=await self._get_sensitive_count(user_id),
+            emotional_anchors=emotional_anchors_count,
+            recent_activity=recent_activity,
         )
 
     async def get_emotional_anchors(
@@ -446,3 +472,71 @@ class RetrievalProcessor:
             return sensitive_count
         except Exception:
             return 0
+
+    async def _calculate_recent_activity(self, all_memories) -> Dict[str, Any]:
+        """Calculate recent memory activity statistics."""
+        from datetime import datetime, timedelta
+        import logging
+
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = now - timedelta(days=7)
+
+        memories_today = 0
+        memories_this_week = 0
+        last_memory_timestamp = None
+        latest_timestamp = None
+
+        logging.info(f"Calculating recent activity for {len(all_memories)} memories")
+        logging.info(f"Today start: {today_start}, Week start: {week_start}")
+
+        for memory in all_memories:
+            # Handle both MemoryItem objects and dictionaries
+            if hasattr(memory, "timestamp"):
+                timestamp = memory.timestamp
+            elif isinstance(memory, dict):
+                timestamp_str = memory.get("timestamp") or memory.get(
+                    "metadata", {}
+                ).get("timestamp")
+                if timestamp_str:
+                    try:
+                        # Handle various timestamp formats
+                        if timestamp_str.endswith("Z"):
+                            timestamp = datetime.fromisoformat(
+                                timestamp_str.replace("Z", "+00:00")
+                            )
+                        elif "+" in timestamp_str or timestamp_str.endswith("00:00"):
+                            timestamp = datetime.fromisoformat(timestamp_str)
+                        else:
+                            # Assume UTC if no timezone info
+                            timestamp = datetime.fromisoformat(timestamp_str)
+                    except Exception as e:
+                        logging.warning(
+                            f"Failed to parse timestamp {timestamp_str}: {e}"
+                        )
+                        continue
+                else:
+                    continue
+            else:
+                continue
+
+            # Track latest timestamp
+            if latest_timestamp is None or timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                last_memory_timestamp = timestamp.isoformat()
+
+            # Count memories today and this week
+            if timestamp >= today_start:
+                memories_today += 1
+            if timestamp >= week_start:
+                memories_this_week += 1
+
+        logging.info(
+            f"Recent activity calculated: today={memories_today}, week={memories_this_week}"
+        )
+
+        return {
+            "memories_added_today": memories_today,
+            "memories_added_this_week": memories_this_week,
+            "last_memory_timestamp": last_memory_timestamp,
+        }

@@ -1,7 +1,6 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "antd";
 import { Database, Brain, Heart, TrendingUp } from "lucide-react";
 import { useMemoryStats } from "../../services/hooks/use-memory";
 
@@ -37,12 +36,14 @@ export const MemoryStats: React.FC<MemoryStatsProps> = ({ userId }) => {
     );
   }
 
-  const longTermPercentage =
-    stats.total > 0 ? Math.round((stats.long_term / stats.total) * 100) : 0;
-  const anchorPercentage =
-    stats.total > 0
-      ? Math.round((stats.emotional_anchors / stats.total) * 100)
-      : 0;
+  // Remove percentage calculations - we want to show numbers only
+
+  // Safe access to recent_activity with defaults
+  const recentActivity = stats.recent_activity || {
+    memories_added_this_week: 0,
+    memories_added_today: 0,
+    last_memory_timestamp: null,
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -72,18 +73,7 @@ export const MemoryStats: React.FC<MemoryStatsProps> = ({ userId }) => {
               <p className="text-2xl font-bold text-purple-600">
                 {stats.long_term}
               </p>
-              <div className="flex items-center mt-1">
-                <Progress
-                  percent={longTermPercentage}
-                  size="small"
-                  showInfo={false}
-                  strokeColor="#8b5cf6"
-                  className="flex-1 mr-2"
-                />
-                <span className="text-xs text-gray-500">
-                  {longTermPercentage}%
-                </span>
-              </div>
+              <p className="text-xs text-gray-500 mt-1">Persistent memories</p>
             </div>
             <div className="p-3 bg-purple-100 rounded-full">
               <Brain className="h-6 w-6 text-purple-600" />
@@ -101,20 +91,9 @@ export const MemoryStats: React.FC<MemoryStatsProps> = ({ userId }) => {
                 Emotional Anchors
               </p>
               <p className="text-2xl font-bold text-pink-600">
-                {stats.emotional_anchors}
+                {stats.emotional_anchors || 0}
               </p>
-              <div className="flex items-center mt-1">
-                <Progress
-                  percent={anchorPercentage}
-                  size="small"
-                  showInfo={false}
-                  strokeColor="#ec4899"
-                  className="flex-1 mr-2"
-                />
-                <span className="text-xs text-gray-500">
-                  {anchorPercentage}%
-                </span>
-              </div>
+              <p className="text-xs text-gray-500 mt-1">Symbolic memories</p>
             </div>
             <div className="p-3 bg-pink-100 rounded-full">
               <Heart className="h-6 w-6 text-pink-600" />
@@ -130,10 +109,10 @@ export const MemoryStats: React.FC<MemoryStatsProps> = ({ userId }) => {
             <div>
               <p className="text-sm font-medium text-gray-600">This Week</p>
               <p className="text-2xl font-bold text-green-600">
-                {stats.recent_activity.memories_added_this_week}
+                {recentActivity.memories_added_this_week}
               </p>
               <p className="text-xs text-gray-500 mt-1">
-                {stats.recent_activity.memories_added_today} today
+                {recentActivity.memories_added_today} today
               </p>
             </div>
             <div className="p-3 bg-green-100 rounded-full">

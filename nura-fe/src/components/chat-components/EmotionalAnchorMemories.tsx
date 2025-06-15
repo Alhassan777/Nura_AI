@@ -70,7 +70,7 @@ export const EmotionalAnchorMemories: React.FC<
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Heart className="h-5 w-5 text-pink-500" />
-            <span>Emotional Anchors</span>
+            <span>Emotional Anchors (This Conversation)</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -88,7 +88,7 @@ export const EmotionalAnchorMemories: React.FC<
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Heart className="h-5 w-5 text-pink-500" />
-            <span>Emotional Anchors</span>
+            <span>Emotional Anchors (This Conversation)</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -127,11 +127,13 @@ export const EmotionalAnchorMemories: React.FC<
                 false;
               const detectedItems = memory.metadata?.detected_items || [];
 
+              // Ensure unique keys by combining ID with index and memory type
+              const uniqueKey = memory.id
+                ? `emotional-anchor-${memory.id}-${index}`
+                : `emotional-anchor-memory-${index}`;
+
               return (
-                <Card
-                  key={memory.id || index}
-                  className="bg-pink-50 border-pink-200"
-                >
+                <Card key={uniqueKey} className="bg-pink-50 border-pink-200">
                   <CardContent className="p-4">
                     <div className="flex items-start space-x-3">
                       <MessageCircle className="h-4 w-4 text-pink-500 mt-1 flex-shrink-0" />

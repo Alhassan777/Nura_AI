@@ -81,9 +81,36 @@ export const memoryApi = {
   },
 
   // Get all long-term memories (emotional anchors + regular memories)
-  getAllLongTermMemories: async () => {
+  getAllLongTermMemories: async (conversationId?: string) => {
+    const params = conversationId ? `?conversation_id=${conversationId}` : "";
+    const response = await axiosInstance.get(`/memory/all-long-term${params}`);
+    return response.data;
+  },
+
+  // Get all memories from all conversations (for Memory Vault)
+  getAllMemoriesFromAllChats: async () => {
     const response = await axiosInstance.get("/memory/all-long-term");
     return response.data;
+  },
+
+  // Get memories for specific conversation (for Chat tabs)
+  getMemoriesForConversation: async (conversationId: string) => {
+    const response = await axiosInstance.get(
+      `/memory/all-long-term?conversation_id=${conversationId}`
+    );
+    return response.data;
+  },
+
+  // Get memory context for specific conversation
+  getMemoryContextForConversation: async (
+    conversationId: string,
+    query?: string
+  ) => {
+    const response = await axiosInstance.post("/memory/context", {
+      query: query || null,
+      conversation_id: conversationId,
+    });
+    return response.data.context;
   },
 
   // Get memory stats
@@ -108,11 +135,11 @@ export const memoryApi = {
       .post("/memory/search", params)
       .then((res) => res.data) as Promise<MemorySearchResult[]>,
 
-  // Get detailed memory statistics
-  getDetailedStats: (userId: string) =>
+  // Get detailed memory statistics (use regular stats endpoint)
+  getDetailedStats: () =>
     axiosInstance
-      .get(`/memory/detailed-stats/${userId}`)
-      .then((res) => res.data) as Promise<MemoryStats>,
+      .get(`/memory/stats`)
+      .then((res) => res.data.stats) as Promise<MemoryStats>,
 
   // Delete specific memory
   deleteMemory: (memoryId: string) =>
