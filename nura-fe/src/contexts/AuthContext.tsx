@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { getCurrentUser, logout as logoutAction } from "@/utils/login-actions";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
 
 interface User {
   id: string;
@@ -94,6 +95,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
       await logoutAction();
       setUser(null);
       setError(null);

@@ -7,6 +7,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { login } from "@/utils/login-actions";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSetCookie } from "cookies-next/client";
+import { createClient } from "@/utils/supabase/client";
 
 export interface LoginFormData {
   email: string;
@@ -27,6 +29,9 @@ export default function LoginForm() {
   const router = useRouter();
   const { refreshUser, setUser } = useAuth();
   const { message } = App.useApp();
+  const setCookie = useSetCookie();
+
+  const supabase = createClient();
 
   const onFinish = async (values: LoginFormData) => {
     setLoading(true);
@@ -38,10 +43,18 @@ export default function LoginForm() {
       // Store tokens in localStorage
       if (typeof window !== "undefined" && result.token) {
         localStorage.setItem("auth_token", result.token);
+        setCookie("auth_token", result.token);
         if (result.session.refresh_token) {
           localStorage.setItem("refresh_token", result.session.refresh_token);
         }
       }
+
+      const { data, error } = await supabase.auth.setSession({
+        access_token: result.token,
+        refresh_token: result.session.refresh_token,
+      });
+      console.log("data", data);
+      console.log("error", error);
 
       message.success("Login successful");
 

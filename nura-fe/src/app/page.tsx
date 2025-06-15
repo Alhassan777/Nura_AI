@@ -6,8 +6,9 @@ import StreakStatisticsCard from "@/components/StreakStatisticsCard";
 import ChatWithNuraCard from "@/components/ChatWithNuraCard";
 import ReflectionCalendarCard from "@/components/ReflectionCalendarCard";
 import FeaturesGridCard from "@/components/FeaturesGridCard";
+import { createClient } from "@/utils/supabase/server";
 
-export default function Page() {
+export default async function Page() {
   return (
     <div className="w-full flex flex-col gap-4 md:py-0">
       <div className="flex md:flex-row flex-col gap-4">
