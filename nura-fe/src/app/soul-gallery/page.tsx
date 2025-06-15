@@ -1,88 +1,77 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Card,
   Button,
-  Input,
-  Select,
   Image,
   Modal,
   Typography,
-  Space,
   Row,
   Col,
   Tag,
   Empty,
+  message,
+  Spin,
 } from "antd";
-import {
-  Heart,
-  Palette,
-  Download,
-  Eye,
-  Sparkles,
-  Camera,
-  BookOpen,
-} from "lucide-react";
-import {
-  useImageGeneration,
-  useImageHistory,
-} from "@/services/hooks/use-image-generation";
+import { Heart, Download, Eye, BookOpen, RefreshCw } from "lucide-react";
+import { useImageHistory } from "@/services/hooks/use-image-generation";
 
 const { Title, Text, Paragraph } = Typography;
-const { TextArea } = Input;
-const { Option } = Select;
 
 export default function SoulGalleryPage() {
-  const [prompt, setPrompt] = useState("");
-  const [style, setStyle] = useState("emotional");
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [showImageModal, setShowImageModal] = useState(false);
 
-  const { mutate: generateImage, isPending: isGenerating } =
-    useImageGeneration();
-  const { data: imageHistory, isLoading: isLoadingHistory } = useImageHistory();
+  const {
+    data: imageHistory,
+    isLoading: isLoadingHistory,
+    error: historyError,
+    refetch: refetchHistory,
+    isError: hasHistoryError,
+  } = useImageHistory(50); // Fetch up to 50 images
 
-  const handleGenerateImage = () => {
-    if (prompt.trim()) {
-      generateImage({
-        prompt: `Emotional visualization of: ${prompt}`,
-        style,
-        size: "1024x1024",
-      });
+  // Show error notification if there's an issue loading the gallery
+  useEffect(() => {
+    if (hasHistoryError && historyError) {
+      message.error(
+        `Failed to load your gallery: ${
+          historyError.message || "Unknown error"
+        }`
+      );
     }
-  };
+  }, [hasHistoryError, historyError]);
 
   const emotionalStyles = [
     {
+      value: "calm",
+      label: "Calm & Peaceful",
+      description: "Serene, tranquil imagery with soft colors",
+    },
+    {
+      value: "energetic",
+      label: "Energetic & Dynamic",
+      description: "Vibrant, powerful imagery with bold colors",
+    },
+    {
+      value: "mysterious",
+      label: "Mysterious & Abstract",
+      description: "Enigmatic, symbolic representations",
+    },
+    {
+      value: "hopeful",
+      label: "Hopeful & Bright",
+      description: "Uplifting imagery with light and possibility",
+    },
+    {
+      value: "melancholic",
+      label: "Melancholic & Reflective",
+      description: "Introspective, contemplative scenes",
+    },
+    {
       value: "emotional",
-      label: "Emotional Abstract",
-      description: "Flowing colors representing feelings",
-    },
-    {
-      value: "symbolic",
-      label: "Symbolic Imagery",
-      description: "Metaphorical representations",
-    },
-    {
-      value: "peaceful",
-      label: "Peaceful Landscapes",
-      description: "Calming, serene environments",
-    },
-    {
-      value: "inner-light",
-      label: "Inner Light",
-      description: "Luminous, spiritual imagery",
-    },
-    {
-      value: "growth",
-      label: "Personal Growth",
-      description: "Imagery of transformation and healing",
-    },
-    {
-      value: "memories",
-      label: "Memory Fragments",
-      description: "Dreamlike, nostalgic scenes",
+      label: "General Emotional",
+      description: "Let AI detect and visualize your emotions",
     },
   ];
 
@@ -96,85 +85,64 @@ export default function SoulGalleryPage() {
       </div>
 
       <Paragraph className="text-gray-600 mb-6">
-        Transform your inner emotions, thoughts, and reflections into beautiful
-        visual art. Create symbolic representations of your mental and emotional
-        journey.
+        Explore your collection of emotional visualizations - beautiful visual
+        art created from your inner thoughts, feelings, and reflections.
       </Paragraph>
-
-      {/* Creation Section */}
-      <Card
-        title={
-          <div className="flex items-center gap-2">
-            <Palette className="h-5 w-5" />
-            <span>Visualize Your Inner World</span>
-          </div>
-        }
-      >
-        <Space direction="vertical" className="w-full" size="large">
-          <div>
-            <Text strong>
-              Describe your current emotion, thought, or reflection:
-            </Text>
-            <TextArea
-              placeholder="e.g., 'I feel like a butterfly emerging from a cocoon' or 'My anxiety feels like storm clouds with silver linings'"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
-              className="mt-2"
-            />
-          </div>
-
-          <div>
-            <Text strong>Artistic Style:</Text>
-            <Select
-              value={style}
-              onChange={setStyle}
-              className="w-full mt-2"
-              placeholder="Choose how to visualize your inner state"
-            >
-              {emotionalStyles.map((styleOption) => (
-                <Option key={styleOption.value} value={styleOption.value}>
-                  <div>
-                    <div className="font-medium">{styleOption.label}</div>
-                    <div className="text-xs text-gray-500">
-                      {styleOption.description}
-                    </div>
-                  </div>
-                </Option>
-              ))}
-            </Select>
-          </div>
-
-          <Button
-            type="primary"
-            size="large"
-            icon={<Sparkles className="h-4 w-4" />}
-            onClick={handleGenerateImage}
-            loading={isGenerating}
-            disabled={!prompt.trim()}
-            className="w-full"
-          >
-            {isGenerating
-              ? "Creating Your Soul Art..."
-              : "Visualize My Inner State"}
-          </Button>
-        </Space>
-      </Card>
 
       {/* Gallery Section */}
       <Card
         title={
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5" />
-            <span>Your Soul Gallery</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5" />
+              <span>Your Soul Gallery</span>
+              {imageHistory && imageHistory.length > 0 && (
+                <Tag color="blue">{imageHistory.length} images</Tag>
+              )}
+            </div>
+            <Button
+              icon={<RefreshCw className="h-4 w-4" />}
+              onClick={() => refetchHistory()}
+              loading={isLoadingHistory}
+              size="small"
+            >
+              Refresh
+            </Button>
           </div>
         }
       >
         {isLoadingHistory ? (
-          <div className="text-center py-8">Loading your gallery...</div>
+          <div className="text-center py-8">
+            <Spin size="large" />
+            <div className="mt-4">Loading your gallery...</div>
+          </div>
+        ) : hasHistoryError ? (
+          <div className="text-center py-8">
+            <Empty
+              description={
+                <div className="space-y-2">
+                  <div>Failed to load your gallery. Please try refreshing.</div>
+                  {process.env.NODE_ENV === "development" && historyError && (
+                    <div className="text-xs text-red-500 mt-2">
+                      Debug: {historyError.message || String(historyError)}
+                    </div>
+                  )}
+                </div>
+              }
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button
+                type="primary"
+                onClick={() => refetchHistory()}
+                icon={<RefreshCw className="h-4 w-4" />}
+              >
+                Try Again
+              </Button>
+            </Empty>
+          </div>
         ) : !imageHistory || imageHistory.length === 0 ? (
           <Empty
-            description="Your soul gallery is empty. Create your first emotional visualization above."
+            description="Your soul gallery is empty. Start creating emotional visualizations through your conversations with Nura to see them appear here."
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (
@@ -187,9 +155,14 @@ export default function SoulGalleryPage() {
                     <div className="relative group">
                       <Image
                         src={image.image_url}
-                        alt={image.prompt}
+                        alt={
+                          image.name ||
+                          image.prompt ||
+                          "Generated emotional visualization"
+                        }
                         className="w-full h-48 object-cover"
                         preview={false}
+                        fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMIAAADDCAYAAADQvc6UAAABRWlDQ1BJQ0MgUHJvZmlsZQAAKJFjYGASSSwoyGFhYGDIzSspCnJ3UoiIjFJgf8LAwSDCIMogwMCcmFxc4BgQ4ANUwgCjUcG3awyMIPqyLsis7PPOq3QdDFcvjV3jOD1boQVTPQrgSkktTgbSf4A4LbmgqISBgTEFyFYuLykAsTuAbJEioKOA7DkgdjqEvQHEToKwj4DVhAQ5A9k3gGyB5IxEoBmML4BsnSQk8XQkNtReEOBxcfXxUQg1Mjc0dyHgXNJBSWpFCYh2zi+oLMpMzyhRcASGUqqCZ16yno6CkYGRAQMDKMwhqj/fAIcloxgHQqxAjIHBEugw5sUIsSQpBobtQPdLciLEVJYzMPBHMDBsayhILEqEO4DxG0txmrERhM29nYGBddr//5/DGRjYNRkY/l7////39v///y4Dmn+LgeHANwDrkl1AuO+pmgAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAwqADAAQAAAABAAAAwwAAAAD9b/HnAAAHlklEQVR4Ae3dP3Ik1RnG4W+FgYxN"
                       />
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-200 flex items-center justify-center">
                         <Button
@@ -201,7 +174,7 @@ export default function SoulGalleryPage() {
                             setShowImageModal(true);
                           }}
                         >
-                          View
+                          View Details
                         </Button>
                       </div>
                     </div>
@@ -209,11 +182,22 @@ export default function SoulGalleryPage() {
                   size="small"
                 >
                   <div className="space-y-2">
-                    <Text className="text-sm line-clamp-2">{image.prompt}</Text>
+                    <Text className="text-sm line-clamp-2 font-medium">
+                      {image.name || "Untitled Visualization"}
+                    </Text>
+                    {image.visual_prompt && (
+                      <Text className="text-xs text-gray-600 line-clamp-2">
+                        {image.visual_prompt}
+                      </Text>
+                    )}
                     <div className="flex items-center justify-between">
                       <Tag color="purple" className="text-xs">
-                        {emotionalStyles.find((s) => s.value === image.style)
-                          ?.label || image.style}
+                        {emotionalStyles.find(
+                          (s) => s.value === image.emotion_type
+                        )?.label ||
+                          image.emotion_type ||
+                          image.style ||
+                          "Emotional"}
                       </Tag>
                       <Text className="text-xs text-gray-500">
                         {new Date(image.created_at).toLocaleDateString()}
@@ -232,7 +216,22 @@ export default function SoulGalleryPage() {
         open={showImageModal}
         onCancel={() => setShowImageModal(false)}
         footer={[
-          <Button key="download" icon={<Download className="h-4 w-4" />}>
+          <Button
+            key="download"
+            icon={<Download className="h-4 w-4" />}
+            onClick={() => {
+              if (selectedImage?.image_url) {
+                const link = document.createElement("a");
+                link.href = selectedImage.image_url;
+                link.download = `${
+                  selectedImage.name || "emotional-visualization"
+                }.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }
+            }}
+          >
             Save to Device
           </Button>,
           <Button key="close" onClick={() => setShowImageModal(false)}>
@@ -240,22 +239,49 @@ export default function SoulGalleryPage() {
           </Button>,
         ]}
         width={800}
+        title={selectedImage?.name || "Emotional Visualization"}
       >
         {selectedImage && (
           <div className="space-y-4">
             <Image
               src={selectedImage.image_url}
-              alt={selectedImage.prompt}
+              alt={
+                selectedImage.name ||
+                selectedImage.prompt ||
+                "Emotional visualization"
+              }
               className="w-full"
             />
-            <div>
-              <Title level={4}>Emotional Reflection</Title>
-              <Paragraph>{selectedImage.prompt}</Paragraph>
-              <div className="flex gap-2">
-                <Tag color="purple">{selectedImage.style}</Tag>
+            <div className="space-y-3">
+              {selectedImage.visual_prompt && (
+                <div>
+                  <Title level={5}>Visual Description</Title>
+                  <Paragraph>{selectedImage.visual_prompt}</Paragraph>
+                </div>
+              )}
+
+              {selectedImage.prompt &&
+                selectedImage.prompt !== selectedImage.visual_prompt && (
+                  <div>
+                    <Title level={5}>Original Input</Title>
+                    <Paragraph>{selectedImage.prompt}</Paragraph>
+                  </div>
+                )}
+
+              <div className="flex flex-wrap gap-2">
+                {selectedImage.emotion_type && (
+                  <Tag color="purple">
+                    {emotionalStyles.find(
+                      (s) => s.value === selectedImage.emotion_type
+                    )?.label || selectedImage.emotion_type}
+                  </Tag>
+                )}
                 <Tag color="blue">
                   {new Date(selectedImage.created_at).toLocaleString()}
                 </Tag>
+                {selectedImage.metadata?.model_used && (
+                  <Tag color="green">{selectedImage.metadata.model_used}</Tag>
+                )}
               </div>
             </div>
           </div>

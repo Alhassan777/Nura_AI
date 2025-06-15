@@ -8,7 +8,7 @@ import asyncio
 import os
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 
 from .emotion_visualizer import EmotionVisualizer
@@ -78,7 +78,15 @@ class GeneratedImageResponse(BaseModel):
     updated_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def convert_uuid_to_string(cls, v):
+        """Convert UUID to string if needed."""
+        if hasattr(v, "__str__"):
+            return str(v)
+        return v
 
 
 # Dependency injection

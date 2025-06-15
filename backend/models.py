@@ -1147,3 +1147,185 @@ class GeneratedImage(Base):
         Index("idx_generated_images_user", "user_id"),
         Index("idx_generated_images_created", "created_at"),
     )
+
+
+# Action Plan Models for AI-generated task management
+
+
+class ActionPlan(Base):
+    """AI-generated action plans for users' goals and mental health."""
+
+    __tablename__ = "action_plans"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Basic plan information
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    plan_type = Column(
+        String, nullable=False
+    )  # therapeutic_emotional, personal_achievement, hybrid
+    priority = Column(String, default="medium")  # low, medium, high
+    status = Column(String, default="active")  # active, completed, paused, deleted
+
+    # AI generation metadata
+    generated_by_ai = Column(Boolean, default=True)
+    generation_prompt = Column(
+        Text, nullable=True
+    )  # The prompt used to generate this plan
+    ai_metadata = Column(
+        JSON, nullable=True
+    )  # AI generation details, user emotional state, etc.
+
+    # Progress tracking
+    progress_percentage = Column(Integer, default=0)
+
+    # Scheduling and completion
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Additional metadata
+    tags = Column(JSON, default=list)  # User-defined tags
+    custom_metadata = Column(JSON, default=dict)  # Additional flexible data
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    user = relationship("User", backref="action_plans")
+    steps = relationship(
+        "ActionStep",
+        back_populates="action_plan",
+        cascade="all, delete-orphan",
+        order_by="ActionStep.order_index",
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_action_plans_user", "user_id"),
+        Index("idx_action_plans_status", "status"),
+        Index("idx_action_plans_type", "plan_type"),
+        Index("idx_action_plans_created", "created_at"),
+        Index("idx_action_plans_user_status", "user_id", "status"),
+    )
+
+    def __repr__(self):
+        return f"<ActionPlan(id={self.id}, user_id={self.user_id}, title={self.title})>"
+
+
+class ActionStep(Base):
+    """Individual steps within an action plan."""
+
+    __tablename__ = "action_steps"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    action_plan_id = Column(
+        String,
+        ForeignKey("action_plans.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Step details
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False)  # Order within the plan
+
+    # Step metadata (from AI generation)
+    time_needed = Column(String, nullable=True)  # e.g., "30 minutes", "1 week"
+    difficulty = Column(String, nullable=True)  # easy, moderate, challenging
+    purpose = Column(Text, nullable=True)  # Why this step matters
+    success_criteria = Column(Text, nullable=True)  # What success looks like
+
+    # Status and progress
+    completed = Column(Boolean, default=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)  # User notes about this step
+
+    # Scheduling
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+
+    # AI-specific fields
+    ai_metadata = Column(JSON, nullable=True)  # Additional AI-generated data
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    action_plan = relationship("ActionPlan", back_populates="steps")
+    subtasks = relationship(
+        "ActionSubtask",
+        back_populates="action_step",
+        cascade="all, delete-orphan",
+        order_by="ActionSubtask.order_index",
+    )
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_action_steps_plan", "action_plan_id"),
+        Index("idx_action_steps_completed", "completed"),
+        Index("idx_action_steps_order", "action_plan_id", "order_index"),
+        Index("idx_action_steps_due", "due_date"),
+    )
+
+    def __repr__(self):
+        return f"<ActionStep(id={self.id}, plan_id={self.action_plan_id}, title={self.title})>"
+
+
+class ActionSubtask(Base):
+    """Subtasks within action steps for detailed breakdown."""
+
+    __tablename__ = "action_subtasks"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    action_step_id = Column(
+        String,
+        ForeignKey("action_steps.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Subtask details
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    order_index = Column(Integer, nullable=False)  # Order within the step
+
+    # Status
+    completed = Column(Boolean, default=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)  # User notes
+
+    # Scheduling
+    due_date = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    action_step = relationship("ActionStep", back_populates="subtasks")
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_action_subtasks_step", "action_step_id"),
+        Index("idx_action_subtasks_completed", "completed"),
+        Index("idx_action_subtasks_order", "action_step_id", "order_index"),
+    )
+
+    def __repr__(self):
+        return f"<ActionSubtask(id={self.id}, step_id={self.action_step_id}, title={self.title})>"

@@ -86,7 +86,7 @@ export interface ProcessMessagePayload {
   };
 }
 
-// Enhanced Mental Health Assistant API functions
+// Mental Health Assistant API functions
 export const assistantApi = {
   // Process message with full assistant capabilities
   processMessage: (data: ProcessMessagePayload) =>
@@ -101,28 +101,6 @@ export const assistantApi = {
         `/assistant/crisis-resources${location ? `?location=${location}` : ""}`
       )
       .then((res) => res.data) as Promise<CrisisResource[]>,
-
-  // Get action plan templates
-  getActionPlanTemplates: (type?: string) =>
-    axiosInstance
-      .get(`/assistant/action-plan-templates${type ? `?type=${type}` : ""}`)
-      .then((res) => res.data),
-
-  // Save action plan
-  saveActionPlan: (actionPlan: any) =>
-    axiosInstance
-      .post("/assistant/action-plans", actionPlan)
-      .then((res) => res.data),
-
-  // Get user's action plans
-  getActionPlans: () =>
-    axiosInstance.get("/assistant/action-plans").then((res) => res.data),
-
-  // Update action plan progress
-  updateActionPlanProgress: (planId: string, progress: any) =>
-    axiosInstance
-      .put(`/assistant/action-plans/${planId}/progress`, progress)
-      .then((res) => res.data),
 
   // Get conversation insights
   getConversationInsights: (timeframe = "week") =>
