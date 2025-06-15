@@ -2,13 +2,13 @@
 
 ## Overview
 
-The Nura backend employs a sophisticated multi-database architecture designed for scalability, performance, and data isolation. The system uses multiple specialized databases and storage systems, each optimized for specific use cases in mental health support and conversation management.
+The Nura backend employs a **unified database architecture** using Supabase PostgreSQL as the primary database for all services. This design provides data consistency, simplified maintenance, and optimal performance through proper indexing and relationship management.
 
 ## Database Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           NURA DATABASE ECOSYSTEM                               │
+│                           NURA DATABASE ARCHITECTURE                            │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                 │
@@ -18,8 +18,8 @@ The Nura backend employs a sophisticated multi-database architecture designed fo
 │  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │                 │
 │  │ │  Frontend   │ │  │ │ Short-term  │ │  │ │ Long-term   │ │                 │
 │  │ │    Auth     │ │  │ │   Memory    │ │  │ │  Memories   │ │                 │
-│  │ │ Gamification│ │  │ │   Cache     │ │  │ │ Embeddings  │ │                 │
-│  │ │   Users     │ │  │ │ Sessions    │ │  │ │  Semantic   │ │                 │
+│  │ │    Users    │ │  │ │   Cache     │ │  │ │ Embeddings  │ │                 │
+│  │ │ Gamification│ │  │ │ Sessions    │ │  │ │  Semantic   │ │                 │
 │  │ └─────────────┘ │  │ └─────────────┘ │  │ │   Search    │ │                 │
 │  │                 │  │                 │  │ └─────────────┘ │                 │
 │  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │                 │                 │
@@ -31,7 +31,9 @@ The Nura backend employs a sophisticated multi-database architecture designed fo
 │  │ │• User Mgmt  │ │  │ │             │ │  │                 │                 │
 │  │ │• Safety Net │ │  │ │             │ │  │                 │                 │
 │  │ │• Scheduling │ │  │ │             │ │  │                 │                 │
-│  │ │• Audit      │ │  │ │             │ │  │                 │                 │
+│  │ │• Memory     │ │  │ │             │ │  │                 │                 │
+│  │ │• Privacy    │ │  │ │             │ │  │                 │                 │
+│  │ │• Assistant  │ │  │ │             │ │  │                 │                 │
 │  │ └─────────────┘ │  │ └─────────────┘ │  │                 │                 │
 │  └─────────────────┘  └─────────────────┘  └─────────────────┘                 │
 │                                                                                 │
@@ -50,80 +52,63 @@ The Nura backend employs a sophisticated multi-database architecture designed fo
 
 ### Database Schemas
 
-#### Frontend Schema (Supabase Native)
+#### Normalized User System
 
-Used by the Next.js frontend with Supabase client libraries.
-
-**Tables:**
-
-- `users` (Supabase Auth native table)
-
-  - User authentication and profile data
-  - Managed by Supabase Auth service
-  - Extended with custom profile fields
-
-- `user_profiles` (Custom table)
-
-  - Additional user profile information
-  - Links to Supabase auth users via `user_id`
-
-- `reflections` (Gamification system)
-
-  - User daily reflections
-  - Mood tracking and notes
-  - XP and streak calculations
-
-- `badges` (Gamification system)
-  - Achievement definitions
-  - Threshold configurations for unlocking
-
-**Frontend Database Usage:**
-
-```typescript
-// Server-side Supabase client
-import { createClient } from "@/utils/supabase/server";
-
-// Browser-side Supabase client
-import { createClient } from "@/utils/supabase/client";
-
-// Authentication integration
-const {
-  data: { user },
-} = await supabase.auth.getUser();
-```
-
-#### Backend Schema (SQLAlchemy Models)
-
-Used by Python backend services through SQLAlchemy ORM.
-
-### Chat Service Tables
-
-**`chat_users`** - User management for chat service
+**Central User Management** - Single source of truth for all user data:
 
 ```sql
-CREATE TABLE chat_users (
-    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+CREATE TABLE users (
+    id VARCHAR PRIMARY KEY,  -- Supabase Auth UUID
     email VARCHAR UNIQUE NOT NULL,
-    full_name VARCHAR NOT NULL,
     phone_number VARCHAR,
-    password_hash VARCHAR NOT NULL,
+    full_name VARCHAR,
+    display_name VARCHAR,
+    bio TEXT,
+    avatar_url VARCHAR,
+
+    -- Auth metadata (synced from Supabase)
+    email_confirmed_at TIMESTAMP WITH TIME ZONE,
+    phone_confirmed_at TIMESTAMP WITH TIME ZONE,
+    last_sign_in_at TIMESTAMP WITH TIME ZONE,
+
+    -- Backend-managed fields
+    is_active BOOLEAN DEFAULT TRUE,
+    current_streak INTEGER DEFAULT 0,
+    xp INTEGER DEFAULT 0,
+
+    -- Preferences
     privacy_settings JSON DEFAULT '{}',
+
+    -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_active_at TIMESTAMP WITH TIME ZONE,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_verified BOOLEAN DEFAULT FALSE
+    deleted_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE INDEX idx_chat_users_email ON chat_users(email);
+-- Service-specific user profiles
+CREATE TABLE user_service_profiles (
+    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    service_type VARCHAR NOT NULL,  -- 'chat', 'voice', 'memory', etc.
+    service_preferences JSON DEFAULT '{}',
+    service_metadata JSON DEFAULT '{}',
+    usage_stats JSON DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(user_id, service_type)
+);
 ```
+
+#### Chat Service Tables
 
 **`conversations`** - Chat session management
 
 ```sql
 CREATE TABLE conversations (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL REFERENCES chat_users(id),
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR,
     description TEXT,
     session_type VARCHAR DEFAULT 'chat',
@@ -136,9 +121,6 @@ CREATE TABLE conversations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     last_message_at TIMESTAMP WITH TIME ZONE
 );
-
-CREATE INDEX idx_conversations_user_updated ON conversations(user_id, updated_at);
-CREATE INDEX idx_conversations_status ON conversations(status);
 ```
 
 **`messages`** - Individual chat messages
@@ -146,8 +128,8 @@ CREATE INDEX idx_conversations_status ON conversations(status);
 ```sql
 CREATE TABLE messages (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    conversation_id VARCHAR NOT NULL REFERENCES conversations(id),
-    user_id VARCHAR NOT NULL REFERENCES chat_users(id),
+    conversation_id VARCHAR NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     role VARCHAR NOT NULL, -- 'user', 'assistant', 'system'
     message_type VARCHAR DEFAULT 'text',
@@ -164,10 +146,6 @@ CREATE TABLE messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
-
-CREATE INDEX idx_messages_conversation ON messages(conversation_id);
-CREATE INDEX idx_messages_user ON messages(user_id);
-CREATE INDEX idx_messages_created ON messages(created_at);
 ```
 
 **`memory_items`** - Extracted memories from conversations
@@ -175,9 +153,9 @@ CREATE INDEX idx_messages_created ON messages(created_at);
 ```sql
 CREATE TABLE memory_items (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL REFERENCES chat_users(id),
-    conversation_id VARCHAR REFERENCES conversations(id),
-    message_id VARCHAR REFERENCES messages(id),
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    conversation_id VARCHAR REFERENCES conversations(id) ON DELETE SET NULL,
+    message_id VARCHAR REFERENCES messages(id) ON DELETE SET NULL,
     content TEXT NOT NULL,
     processed_content TEXT,
     memory_type VARCHAR NOT NULL,
@@ -195,151 +173,75 @@ CREATE TABLE memory_items (
     extraction_metadata JSON DEFAULT '{}',
     tags JSON DEFAULT '[]',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_accessed_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_archived BOOLEAN DEFAULT FALSE
 );
-
-CREATE INDEX idx_memory_items_user ON memory_items(user_id);
-CREATE INDEX idx_memory_items_type ON memory_items(memory_type);
-CREATE INDEX idx_memory_items_storage_type ON memory_items(storage_type);
 ```
 
-**`conversation_summaries`** - AI-generated conversation summaries
+#### Voice Service Tables
+
+**`voices`** - Available voice assistants
 
 ```sql
-CREATE TABLE conversation_summaries (
-    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    conversation_id VARCHAR NOT NULL UNIQUE REFERENCES conversations(id),
-    user_id VARCHAR NOT NULL REFERENCES chat_users(id),
-    summary TEXT NOT NULL,
-    key_topics JSON DEFAULT '[]',
-    emotional_themes JSON DEFAULT '[]',
-    action_items JSON DEFAULT '[]',
-    sentiment_overall VARCHAR,
-    crisis_indicators JSON DEFAULT '{}',
-    therapeutic_progress JSON DEFAULT '{}',
-    summary_metadata JSON DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_conversation_summaries_user ON conversation_summaries(user_id);
-```
-
-**`system_events`** - Audit logging and system events
-
-```sql
-CREATE TABLE system_events (
-    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR REFERENCES chat_users(id),
-    event_type VARCHAR NOT NULL,
-    event_category VARCHAR NOT NULL,
-    event_data JSON DEFAULT '{}',
-    severity VARCHAR DEFAULT 'info',
-    session_id VARCHAR,
-    ip_address VARCHAR,
-    user_agent VARCHAR,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_events_type_created ON system_events(event_type, created_at);
-CREATE INDEX idx_events_category_created ON system_events(event_category, created_at);
-CREATE INDEX idx_events_severity ON system_events(severity);
-```
-
-### Voice Service Tables
-
-**`voice_users`** - Voice service user management
-
-```sql
-CREATE TABLE voice_users (
+CREATE TABLE voices (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR NOT NULL,
-    email VARCHAR UNIQUE NOT NULL,
-    phone VARCHAR,
-    password_hash VARCHAR,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    assistant_id VARCHAR UNIQUE NOT NULL,
+    description TEXT,
+    sample_url VARCHAR,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
-**`voice_calls`** - Voice call sessions
+**`voice_calls`** - Voice call records
 
 ```sql
 CREATE TABLE voice_calls (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL REFERENCES voice_users(id),
-    assistant_id VARCHAR NOT NULL,
     vapi_call_id VARCHAR UNIQUE,
-    phone_number VARCHAR,
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assistant_id VARCHAR NOT NULL REFERENCES voices(assistant_id),
+    channel VARCHAR, -- 'web', 'phone'
     status VARCHAR DEFAULT 'pending',
-    started_at TIMESTAMP,
-    ended_at TIMESTAMP,
-    duration_seconds INTEGER,
-    call_metadata JSON,
-    transcript TEXT,
-    summary TEXT,
-    sentiment_analysis JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**`voice_schedules`** - Scheduled voice calls
-
-```sql
-CREATE TABLE voice_schedules (
-    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL REFERENCES voice_users(id),
-    assistant_id VARCHAR NOT NULL,
-    name VARCHAR NOT NULL,
-    cron_expression VARCHAR NOT NULL,
-    timezone VARCHAR DEFAULT 'UTC',
-    next_run_at TIMESTAMP NOT NULL,
-    last_run_at TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    custom_metadata JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Central User Service Tables
-
-**`users`** - Centralized user management
-
-```sql
-CREATE TABLE users (
-    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR UNIQUE NOT NULL,
-    first_name VARCHAR NOT NULL,
-    last_name VARCHAR NOT NULL,
     phone_number VARCHAR,
-    password_hash VARCHAR NOT NULL,
-    privacy_settings JSON DEFAULT '{}',
-    is_active BOOLEAN DEFAULT TRUE,
-    is_verified BOOLEAN DEFAULT FALSE,
+    started_at TIMESTAMP WITH TIME ZONE,
+    ended_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    last_active_at TIMESTAMP WITH TIME ZONE,
-    voice_metadata JSON DEFAULT '{}',
-    chat_metadata JSON DEFAULT '{}'
+    cost_total DECIMAL(10,4),
+    cost_breakdown JSON
 );
-
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_phone ON users(phone_number);
-CREATE INDEX idx_users_active ON users(is_active);
-CREATE INDEX idx_users_created ON users(created_at);
 ```
 
-### Safety Network Service Tables
+**`call_summaries`** - Voice call summaries (NO transcripts)
+
+```sql
+CREATE TABLE call_summaries (
+    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+    call_id VARCHAR NOT NULL REFERENCES voice_calls(id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    summary_json JSON NOT NULL,
+    duration_seconds INTEGER,
+    sentiment VARCHAR,
+    key_topics JSON DEFAULT '[]',
+    action_items JSON DEFAULT '[]',
+    crisis_indicators JSON DEFAULT '{}',
+    emotional_state VARCHAR,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+#### Safety Network Tables
 
 **`safety_contacts`** - Emergency contacts and trusted friends
 
 ```sql
 CREATE TABLE safety_contacts (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL, -- FK to central users table
-    contact_user_id VARCHAR, -- FK to users table if contact is also a system user
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    contact_user_id VARCHAR REFERENCES users(id) ON DELETE SET NULL,
     external_first_name VARCHAR,
     external_last_name VARCHAR,
     external_phone_number VARCHAR,
@@ -352,35 +254,87 @@ CREATE TABLE safety_contacts (
     preferred_contact_time VARCHAR,
     timezone VARCHAR DEFAULT 'UTC',
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    is_emergency_contact BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_contacted_at TIMESTAMP WITH TIME ZONE,
+    last_contact_method VARCHAR,
+    last_contact_successful BOOLEAN,
+    custom_metadata JSON DEFAULT '{}'
 );
 ```
 
-### Scheduling Service Tables
+#### Scheduling Service Tables
 
 **`schedules`** - Unified scheduling for chat and voice assistants
 
 ```sql
 CREATE TABLE schedules (
     id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR NOT NULL,
     description TEXT,
     schedule_type VARCHAR NOT NULL, -- 'chat_checkup', 'voice_call', 'reminder'
     cron_expression VARCHAR NOT NULL,
     timezone VARCHAR DEFAULT 'UTC',
-    next_run_at TIMESTAMP NOT NULL,
-    last_run_at TIMESTAMP,
+    next_run_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_run_at TIMESTAMP WITH TIME ZONE,
     reminder_method VARCHAR NOT NULL, -- 'call', 'sms', 'email'
     phone_number VARCHAR,
     email VARCHAR,
     assistant_id VARCHAR,
     is_active BOOLEAN DEFAULT TRUE,
-    custom_metadata JSON,
+    custom_metadata JSON DEFAULT '{}',
     context_summary TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+#### Gamification Tables
+
+**`badges`** - Achievement definitions
+
+```sql
+CREATE TABLE badges (
+    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR NOT NULL,
+    description TEXT,
+    icon_url VARCHAR,
+    xp_award INTEGER DEFAULT 0,
+    criteria JSON DEFAULT '{}',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+**`user_badges`** - User achievement tracking
+
+```sql
+CREATE TABLE user_badges (
+    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    badge_id VARCHAR NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+    earned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_id, badge_id)
+);
+```
+
+#### Image Generation Tables
+
+**`generated_images`** - AI-generated emotional visualization images
+
+```sql
+CREATE TABLE generated_images (
+    id VARCHAR PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR,
+    prompt TEXT NOT NULL,
+    image_data TEXT NOT NULL, -- base64 or URL to file
+    image_format VARCHAR DEFAULT 'png',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
@@ -417,21 +371,6 @@ key_pattern = f"cache:{service}:{endpoint}:{hash}"
 key_pattern = f"session:{session_id}"
 # User authentication state and preferences
 ```
-
-#### Conversation Context
-
-```python
-# Recent conversation context for AI responses
-key_pattern = f"user:{user_id}:context"
-# Recent messages and conversation state
-```
-
-### Redis Data Structures Used
-
-- **Lists**: Short-term memories, message queues
-- **Strings**: Cached API responses, session tokens
-- **Hashes**: User preferences, configuration data
-- **Sets**: User tags, active sessions
 
 ## 3. Vector Databases
 
@@ -472,22 +411,9 @@ The system supports two vector database options:
 }
 ```
 
-#### Embedding Models
+## 4. Service Integration Architecture
 
-- **Pinecone**: NVIDIA llama-text-embed-v2 (768 dimensions)
-- **ChromaDB**: Google Gemini embedding-001 (768 dimensions)
-
-### Vector Operations
-
-- **Add Memory**: Store new memory with embedding
-- **Semantic Search**: Find similar memories using cosine similarity
-- **Update Memory**: Modify existing memory and re-embed
-- **Delete Memory**: Remove memory from vector store
-- **Bulk Operations**: Clear all user memories, get memory count
-
-## 4. Database Relationships and Data Flow
-
-### Data Flow Architecture
+### Data Flow
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -497,21 +423,23 @@ The system supports two vector database options:
          │                       │                       │
          │                       │                       │
     ┌────▼────┐             ┌────▼────┐             ┌────▼────┐
-    │Supabase │             │Chat     │             │Supabase │
-    │Client   │             │Service  │             │PostgreSQL│
-    │         │             │         │             │         │
-    │• Auth   │             │• Message│             │• Users  │
-    │• Profile│             │• Memory │             │• Chats  │
-    │• Badges │             │• Crisis │             │• Memories│
-    └─────────┘             └─────┬───┘             └─────────┘
+    │Supabase │             │Mental   │             │Supabase │
+    │Client   │             │Health   │             │PostgreSQL│
+    │         │             │Assistant│             │         │
+    │• Auth   │             │(Refactor│             │• Users  │
+    │• Profile│             │ed)      │             │• Chat   │
+    │• Badges │             │• Crisis │             │• Voice  │
+    └─────────┘             │• Memory │             │• Memory │
+                            │• Extract│             │• Safety │
+                            └─────┬───┘             └─────────┘
                                   │
                              ┌────▼────┐             ┌─────────┐
                              │Memory   │             │ Redis   │
                              │Service  │◄──────────► │ Cache   │
                              │         │             │         │
-                             │• Extract│             │• Short  │
-                             │• Score  │             │• Session│
-                             │• Store  │             │• Context│
+                             │• Store  │             │• Short  │
+                             │• Retriev│             │• Session│
+                             │• Process│             │• Context│
                              └─────┬───┘             └─────────┘
                                    │
                               ┌────▼────┐             ┌─────────┐
@@ -520,111 +448,66 @@ The system supports two vector database options:
                               │         │             │         │
                               │• Embed  │             │• Long   │
                               │• Search │             │• Semantic│
-                              │• Retrieve│             │• Similar│
+                              │• Similar│             │• Search │
                               └─────────┘             └─────────┘
 ```
 
 ### Service-Database Mapping
 
-| Service            | Primary Database    | Secondary Storage   | Purpose                           |
-| ------------------ | ------------------- | ------------------- | --------------------------------- |
-| **Frontend**       | Supabase PostgreSQL | -                   | User auth, profiles, gamification |
-| **Chat Service**   | Supabase PostgreSQL | Redis (caching)     | Conversations, messages, users    |
-| **Memory Service** | Vector DB + Redis   | Supabase (metadata) | Memory processing and storage     |
-| **Voice Service**  | Supabase PostgreSQL | Redis (sessions)    | Voice calls, scheduling           |
-| **User Service**   | Supabase PostgreSQL | -                   | Centralized user management       |
-| **Safety Network** | Supabase PostgreSQL | -                   | Emergency contacts                |
-| **Scheduling**     | Supabase PostgreSQL | Redis (job queue)   | Automated reminders               |
-| **Audit Service**  | Supabase PostgreSQL | -                   | System events, security logs      |
+| Service                     | Primary Database    | Secondary Storage   | Purpose                              |
+| --------------------------- | ------------------- | ------------------- | ------------------------------------ |
+| **Frontend**                | Supabase PostgreSQL | -                   | User auth, profiles, gamification    |
+| **Mental Health Assistant** | Supabase PostgreSQL | Redis + Vector      | Refactored assistant with extractors |
+| **Chat Service**            | Supabase PostgreSQL | Redis (caching)     | Conversations, messages              |
+| **Memory Service**          | Vector DB + Redis   | Supabase (metadata) | Memory processing and storage        |
+| **Voice Service**           | Supabase PostgreSQL | Redis (sessions)    | Voice calls, scheduling              |
+| **User Service**            | Supabase PostgreSQL | -                   | Centralized user management          |
+| **Safety Network**          | Supabase PostgreSQL | -                   | Emergency contacts                   |
+| **Scheduling**              | Supabase PostgreSQL | Redis (job queue)   | Automated reminders                  |
+| **Image Generation**        | Supabase PostgreSQL | -                   | AI-generated emotional images        |
+| **Privacy Service**         | Supabase PostgreSQL | -                   | PII detection and consent            |
 
-### Cross-Database Relationships
-
-#### User Identity Synchronization
-
-```
-Frontend Supabase Auth Users ←→ Backend chat_users ←→ Central users table
-                             ←→ voice_users
-                             ←→ safety_contacts.user_id
-```
-
-#### Memory Pipeline
-
-```
-1. Chat Message (PostgreSQL)
-   ↓
-2. Extract Memory (Memory Service)
-   ↓
-3. Short-term Storage (Redis)
-   ↓
-4. Process & Score (AI/ML)
-   ↓
-5. Long-term Storage (Vector DB)
-   ↓
-6. Metadata Storage (PostgreSQL)
-```
-
-#### Crisis Detection Flow
-
-```
-1. Message Analysis (Chat Service)
-   ↓
-2. Crisis Indicators Detected
-   ↓
-3. Safety Network Lookup (PostgreSQL)
-   ↓
-4. Emergency Contact Notification
-   ↓
-5. Audit Log Entry (PostgreSQL)
-```
-
-## 5. Database Configuration by Environment
-
-### Development Environment
-
-```bash
-# Supabase (Primary)
-SUPABASE_DATABASE_URL=postgresql://postgres:password@localhost:54322/postgres
-
-# Redis (Caching)
-REDIS_URL=redis://localhost:6379
-
-# Vector Database (Local)
-VECTOR_DB_TYPE=chroma
-CHROMA_PERSIST_DIR=./data/vector_store
-```
-
-### Production Environment
-
-```bash
-# Supabase (Primary)
-SUPABASE_DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
-
-# Redis (Managed)
-REDIS_URL=redis://[REDIS-HOST]:6379
-
-# Vector Database (Managed)
-VECTOR_DB_TYPE=pinecone
-PINECONE_API_KEY=[API-KEY]
-PINECONE_INDEX_NAME=nura-memories-prod
-```
-
-## 6. Database Performance and Optimization
+## 5. Database Performance and Optimization
 
 ### Indexing Strategy
 
 #### PostgreSQL Indexes
 
-- **Users**: email, phone_number, active status, creation date
-- **Conversations**: user_id + updated_at (composite), status
-- **Messages**: conversation_id, user_id, creation_at
-- **Memory Items**: user_id, memory_type, storage_type
-- **System Events**: event_type + created_at, category + created_at
+```sql
+-- Users
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(is_active);
+CREATE INDEX idx_users_created ON users(created_at);
+
+-- Conversations & Messages
+CREATE INDEX idx_conversations_user_updated ON conversations(user_id, updated_at);
+CREATE INDEX idx_messages_conversation ON messages(conversation_id);
+CREATE INDEX idx_messages_user ON messages(user_id);
+CREATE INDEX idx_messages_created ON messages(created_at);
+
+-- Memory Items
+CREATE INDEX idx_memory_items_user ON memory_items(user_id);
+CREATE INDEX idx_memory_items_type ON memory_items(memory_type);
+CREATE INDEX idx_memory_items_storage_type ON memory_items(storage_type);
+
+-- Voice Service
+CREATE INDEX idx_voice_calls_user ON voice_calls(user_id);
+CREATE INDEX idx_call_summaries_user ON call_summaries(user_id);
+
+-- Safety Network
+CREATE INDEX idx_safety_contacts_user ON safety_contacts(user_id);
+CREATE INDEX idx_safety_contacts_priority ON safety_contacts(user_id, priority_order);
+
+-- Generated Images
+CREATE INDEX idx_generated_images_user ON generated_images(user_id);
+CREATE INDEX idx_generated_images_created ON generated_images(created_at);
+```
 
 #### Redis Optimization
 
 - **Memory Management**: LRU eviction policy
 - **Connection Pooling**: Redis connection pool with max 10 connections
-- **TTL Strategy**: Auto-expire cached data after 1 hour
+- **TTL Strategy**: Auto-expire cached data after appropriate intervals
 
 #### Vector Database Optimization
 
@@ -646,7 +529,7 @@ max_connections=10
 retry_on_timeout=True
 ```
 
-## 7. Data Privacy and Security
+## 6. Data Privacy and Security
 
 ### PII Detection and Management
 
@@ -664,10 +547,10 @@ retry_on_timeout=True
 ### Access Control
 
 - **Row Level Security**: Supabase RLS policies for user data isolation
-- **Service Isolation**: Each service has its own database credentials
+- **Service Isolation**: Each service has appropriate database permissions
 - **API Security**: JWT-based authentication between frontend and backend
 
-## 8. Backup and Disaster Recovery
+## 7. Backup and Disaster Recovery
 
 ### Supabase PostgreSQL
 
@@ -686,23 +569,7 @@ retry_on_timeout=True
 - **Pinecone**: Managed backup and replication by Pinecone
 - **ChromaDB**: File-based persistence with regular backups to cloud storage
 
-## 9. Monitoring and Alerts
-
-### Database Health Monitoring
-
-- **Connection Pool Monitoring**: Track active/idle connections
-- **Query Performance**: Slow query logging and analysis
-- **Storage Usage**: Disk space and memory utilization
-- **Error Rate Tracking**: Database connection errors and timeouts
-
-### Performance Metrics
-
-- **Response Time**: Database query latency
-- **Throughput**: Queries per second per service
-- **Cache Hit Rate**: Redis cache effectiveness
-- **Vector Search Latency**: Embedding search performance
-
-## 10. Migration and Schema Evolution
+## 8. Migration and Schema Evolution
 
 ### Database Migrations
 
@@ -714,16 +581,40 @@ retry_on_timeout=True
 
 - **Development → Staging**: Automated data seeding scripts
 - **Staging → Production**: Blue-green deployment with data validation
-- **Cross-Service Sync**: User ID synchronization between services
+- **User Normalization**: Ongoing migration from legacy user tables to normalized schema
 
-## Conclusion
+## 9. Monitoring and Performance
 
-The Nura backend database architecture provides a robust, scalable foundation for mental health support services. The multi-database approach ensures optimal performance for different data types while maintaining data consistency and user privacy. The combination of PostgreSQL for structured data, Redis for caching, and vector databases for semantic search creates a comprehensive system capable of handling complex AI-driven mental health applications.
+### Key Metrics
 
-Key strengths of this architecture:
+- **Database Performance**: Query latency, connection pool utilization
+- **Cache Performance**: Redis hit rates, memory usage
+- **Vector Search**: Search latency, index size
+- **User Data**: Growth rates, storage utilization
 
-- **Scalability**: Each database optimized for its specific use case
-- **Performance**: Caching and indexing strategies for fast response times
-- **Privacy**: Comprehensive PII detection and user consent management
-- **Reliability**: Backup and disaster recovery procedures
-- **Flexibility**: Support for both local development and cloud production environments
+### Health Checks
+
+```python
+# Database health monitoring
+async def check_database_health():
+    # PostgreSQL connection test
+    # Redis connectivity test
+    # Vector database availability
+    # Performance metrics collection
+```
+
+## 10. Future Scalability Considerations
+
+### Horizontal Scaling
+
+- **Read Replicas**: Supabase read replicas for heavy read workloads
+- **Service Separation**: Individual services can scale independently
+- **Cache Sharding**: Redis sharding for larger user bases
+
+### Data Archival
+
+- **Cold Storage**: Archive old conversations and memories
+- **Data Lifecycle**: Automated data retention policies
+- **Compliance**: User-controlled data deletion and export
+
+This unified database architecture provides a robust, scalable foundation for the Nura mental health platform while maintaining data consistency, privacy, and performance across all services.

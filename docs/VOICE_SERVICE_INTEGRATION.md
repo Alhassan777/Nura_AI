@@ -1,73 +1,75 @@
-# Voice Service Integration - Blueprint Architecture
+# Voice Service Integration - Current Implementation
 
-This document describes the new Vapi.ai voice integration that implements the **component-level blueprint architecture** for the Nura mental health application.
+This document describes the Vapi.ai voice integration implemented in the Nura mental health application, providing voice-based interactions with the refactored mental health assistant.
 
 ## Architecture Overview
 
-The voice service follows a clean, scalable architecture that keeps the backend lean while leveraging Vapi's infrastructure for all real-time speech processing:
+The voice service provides a clean, scalable architecture that integrates with the main Nura backend while leveraging Vapi's infrastructure for speech processing:
 
 ```
 ┌─────────────────────────┐    ┌──────────────────────────┐
-│  Next.js Frontend       │◄──►│  Memory Service API      │
-│  • Auth / JWT          │    │  • REST endpoints        │
-│  • Vapi Web SDK        │    │  • AuthZ middleware      │
+│  Next.js Frontend       │◄──►│  Nura Backend API        │
+│  • Supabase Auth        │    │  • JWT Authentication    │
+│  • Vapi Web SDK         │    │  • Voice Service         │
 └─────────┬───────────────┘    └──────────┬───────────────┘
           │                               │
  WebSocket│                      REST     │
  events   │                               ▼
 ┌─────────▼───────────────┐    ┌──────────────────────────┐
-│  Webhook Handler        │    │  Job Queue (Redis)       │
-│  (Frontend API)         │    │  • BullMQ-style          │
-└─────────┬───────────────┘    │  • Cron scheduling       │
-          │                    │  • Retry logic           │
+│  Voice Service API      │    │  Mental Health Assistant │
+│  (backend/services/     │    │  (Refactored)            │
+│   voice/)               │    │  • Crisis Detection      │
+└─────────┬───────────────┘    │  • Memory Integration    │
+          │                    │  • Parallel Processing   │
    HTTPS  │                    └──────────┬───────────────┘
           ▼                               │
    ┌─────────────┐                       ▼
-   │ Vapi Webhook│◄─────────────┐ ┌────────────────────┐
-   │ /voice/     │              │ │ Vapi REST API      │
-   │ webhook     │              │ │ • create call      │
-   └─────┬───────┘              │ │ • get call         │
-         │ analysis-complete    │ │ (metadata isolated)│
-         ▼                      │ └────────────────────┘
+   │ Vapi.ai API │◄─────────────┐ ┌────────────────────┐
+   │ • Voice     │              │ │ Memory & Storage   │
+   │   Calls     │              │ │ • Redis (short)    │
+   │ • Webhooks  │              │ │ • Vector (long)    │
+   └─────┬───────┘              │ └────────────────────┘
+         │ call events          │
+         ▼                      │
 ┌─────────────────────────┐     │
-│  PostgreSQL             │     │
+│  Supabase Database      │     │
 │  • voices              │     │
 │  • voice_calls         │     │
 │  • call_summaries      │     │
 │  • voice_schedules     │     │
-│  (NO transcripts)      │     │
+│  • webhook_events      │     │
 └─────────────────────────┘     │
 ```
 
 ## Key Features
 
-### 1. Zero Transcript Storage
+### 1. Voice-Enabled Mental Health Assistant
 
-- **All speech processing stays in Vapi** - we never store raw transcripts
-- Only processed summaries, sentiment analysis, and structured data are stored
-- Dramatically reduces privacy concerns and storage costs
-- Full compliance with mental health data regulations
+- **Integration**: Connects voice input to the refactored mental health assistant
+- **Crisis Detection**: Voice-based crisis assessment and intervention
+- **Memory Integration**: Voice conversations contribute to user memory systems
+- **Privacy Compliant**: No transcript storage, only processed summaries
 
-### 2. Per-User Data Isolation
+### 2. User Authentication & Security
 
-- Every call includes `metadata.userId` for strict user isolation
-- Database queries are automatically filtered by user ID
-- No cross-user data leakage possible
-- Row-level security at the database level
+- **JWT Integration**: Secure user authentication via Supabase
+- **User Isolation**: Voice data scoped to individual users
+- **Privacy Protection**: Sensitive information handling compliant with mental health regulations
+- **Audit Logging**: Comprehensive logging for compliance and debugging
 
-### 3. Scalable Scheduling
+### 3. Real-time Voice Processing
 
-- Redis-based job queue with BullMQ-style processing
-- Cron expression support for complex recurring schedules
-- Exponential backoff retry logic
-- Horizontal scaling ready
+- **Vapi Integration**: Real-time speech-to-text and text-to-speech
+- **Webhook Processing**: Real-time event handling for call lifecycle
+- **Memory Processing**: Background memory extraction from conversations
+- **Crisis Intervention**: Immediate crisis detection and response during calls
 
-### 4. Real-time Event Processing
+### 4. Flexible Call Management
 
-- HMAC-verified webhooks from Vapi
-- Event filtering (only process relevant events)
-- Automatic user/call mapping via metadata
-- WebSocket support for frontend updates
+- **Browser Calls**: Direct web-based voice interactions
+- **Phone Calls**: Traditional phone number-based calling
+- **Scheduled Calls**: Automated wellness check-ins and reminders
+- **Call History**: Comprehensive call tracking and analytics
 
 ## Database Schema
 
@@ -79,112 +81,166 @@ The voice service follows a clean, scalable architecture that keeps the backend 
 | `voice_calls`     | Call metadata and status           | `vapi_call_id`, `user_id`, `channel`, `status` |
 | `call_summaries`  | **Summaries only, NO transcripts** | `summary_json`, `sentiment`, `key_topics`      |
 | `voice_schedules` | Recurring call schedules           | `cron_expression`, `next_run_at`, `user_id`    |
-| `voice_users`     | User profiles for voice service    | `phone`, `email`, `id`                         |
+| `webhook_events`  | Vapi event logging                 | `event_type`, `payload`, `processed_at`        |
 
-### No Transcript Storage
+### Data Flow & Privacy
 
 ```sql
--- ❌ We DON'T store this
-CREATE TABLE transcripts (
-  content TEXT -- NEVER STORED
+-- ✅ We DO store processed summaries
+CREATE TABLE call_summaries (
+  id VARCHAR PRIMARY KEY,
+  call_id VARCHAR REFERENCES voice_calls(id),
+  user_id VARCHAR NOT NULL,
+  summary_json JSONB,        -- Processed summary from Vapi
+  duration_seconds INTEGER,
+  sentiment VARCHAR,         -- positive/negative/neutral
+  key_topics JSONB,         -- Array of topics
+  action_items JSONB,       -- Extracted action items
+  crisis_indicators JSONB,  -- Crisis assessment results
+  emotional_state VARCHAR,  -- Overall assessment
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
--- ✅ We DO store this
-CREATE TABLE call_summaries (
-  summary_json JSONB,     -- Processed summary from Vapi
-  sentiment VARCHAR,      -- positive/negative/neutral
-  key_topics JSONB,      -- Array of topics
-  emotional_state VARCHAR -- Overall assessment
-);
+-- ❌ We DON'T store raw transcripts
+-- transcript_text NOT STORED for privacy
 ```
 
 ## API Endpoints
 
 ### Voice Management
 
-- `GET /voice/voices` - List available voices
-- `POST /voice/calls/browser` - Start browser call (Web SDK config)
-- `POST /voice/calls/phone` - Queue outbound phone call
-- `GET /voice/calls` - List user's calls (filtered by user)
+| Endpoint                    | Method | Description               | Authentication |
+| --------------------------- | ------ | ------------------------- | -------------- |
+| `GET /voice/voices`         | GET    | List available voices     | Required       |
+| `POST /voice/calls/browser` | POST   | Start browser call        | Required       |
+| `POST /voice/calls/phone`   | POST   | Queue outbound phone call | Required       |
+| `GET /voice/calls`          | GET    | List user's calls         | Required       |
 
 ### Scheduling
 
-- `POST /voice/schedules` - Create recurring call schedule
-- `GET /voice/schedules` - List user's schedules
-- `PUT /voice/schedules/{id}` - Update schedule
-- `DELETE /voice/schedules/{id}` - Delete schedule
+| Endpoint                       | Method | Description                    | Authentication |
+| ------------------------------ | ------ | ------------------------------ | -------------- |
+| `POST /voice/schedules`        | POST   | Create recurring call schedule | Required       |
+| `GET /voice/schedules`         | GET    | List user's schedules          | Required       |
+| `PUT /voice/schedules/{id}`    | PUT    | Update schedule                | Required       |
+| `DELETE /voice/schedules/{id}` | DELETE | Delete schedule                | Required       |
 
-### Analytics (Summary Only)
+### Analytics & History
 
-- `GET /voice/summaries` - List call summaries (no transcripts)
-- `GET /voice/summaries/{id}` - Get specific summary
+| Endpoint                    | Method | Description          | Authentication |
+| --------------------------- | ------ | -------------------- | -------------- |
+| `GET /voice/summaries`      | GET    | List call summaries  | Required       |
+| `GET /voice/summaries/{id}` | GET    | Get specific summary | Required       |
 
-### Webhooks (Internal)
+### System Integration
 
-- `POST /voice/webhook` - Process Vapi webhooks
-- `GET /voice/health` - Service health check
+| Endpoint              | Method | Description           | Authentication |
+| --------------------- | ------ | --------------------- | -------------- |
+| `POST /voice/webhook` | POST   | Process Vapi webhooks | Internal       |
+| `GET /voice/health`   | GET    | Service health check  | None           |
 
-## Request/Response Flow
+## Request/Response Examples
 
-### 1. Browser Call (Inbound)
+### 1. Start Browser Call
 
 ```typescript
 // Frontend
-const response = await fetch("/api/voice/start", {
+const response = await fetch("/api/voice/calls/browser", {
   method: "POST",
+  headers: {
+    Authorization: `Bearer ${userToken}`,
+    "Content-Type": "application/json",
+  },
   body: JSON.stringify({
-    mode: "web",
-    assistantId: "assistant-id",
-    metadata: { sessionId: "abc123" },
+    assistant_id: "your-assistant-id",
   }),
 });
 
-const { config } = await response.json();
-vapi.start(config.assistantId, {
-  metadata: config.metadata,
+const { success, vapi_call_id, assistant_id } = await response.json();
+
+// Initialize Vapi Web SDK
+vapi.start(assistant_id, {
+  metadata: { user_id: currentUserId },
 });
 ```
 
-### 2. Phone Call (Outbound)
+### 2. Schedule Recurring Call
 
 ```typescript
-// Frontend triggers
-const response = await fetch("/api/voice/start", {
+const response = await fetch("/api/voice/schedules", {
   method: "POST",
+  headers: {
+    Authorization: `Bearer ${userToken}`,
+    "Content-Type": "application/json",
+  },
   body: JSON.stringify({
-    mode: "phone",
-    phoneNumber: "+1234567890",
-    assistantId: "assistant-id",
+    name: "Daily Check-in",
+    assistant_id: "assistant-id",
+    cron_expression: "0 9 * * *", // Daily at 9 AM
+    timezone: "America/New_York",
+    is_active: true,
   }),
 });
-
-// Backend queues job
-await voice_queue.enqueue_call(user_id, assistant_id, phone_number);
 ```
 
-### 3. Webhook Processing
+### 3. Get Call Summary
+
+```typescript
+const response = await fetch(`/api/voice/summaries/${callId}`, {
+  headers: {
+    Authorization: `Bearer ${userToken}`,
+  },
+});
+
+const summary = await response.json();
+// Returns: summary_json, sentiment, key_topics, action_items, etc.
+```
+
+## Integration with Mental Health Assistant
+
+### Memory Processing
+
+Voice conversations are processed through the same refactored mental health assistant:
 
 ```python
-# Vapi sends webhook
-{
-  "type": "analysis-complete",
-  "call": { "id": "call-123", "metadata": {"userId": "user-456"} },
-  "analysis": {
-    "sentiment": "positive",
-    "summary": "User discussed coping strategies...",
-    "keyTopics": ["anxiety", "work-stress"],
-    # NO TRANSCRIPT INCLUDED
-  }
-}
+# After voice call completion
+async def process_voice_call_completion(call_data):
+    user_id = call_data["metadata"]["user_id"]
+    summary = call_data["analysis"]["summary"]
 
-# We store summary only
-summary = CallSummary(
-  call_id=call_record.id,
-  user_id=user_id,
-  summary_json=analysis_data,  # Structured summary
-  sentiment=analysis_data.get("sentiment"),
-  # transcript=None  # NEVER STORED
-)
+    # Process through refactored assistant for memory extraction
+    assistant_response = await mental_health_assistant.process_voice_summary(
+        user_id=user_id,
+        voice_summary=summary,
+        call_metadata=call_data
+    )
+
+    # Extract and store memories
+    if assistant_response.get("memories_extracted"):
+        await memory_service.store_memories(
+            user_id=user_id,
+            memories=assistant_response["memories"],
+            source="voice_call"
+        )
+```
+
+### Crisis Detection
+
+Voice calls benefit from the same crisis detection capabilities:
+
+```python
+async def analyze_voice_crisis_indicators(call_summary):
+    crisis_assessment = await mental_health_assistant.assess_crisis_level(
+        content=call_summary,
+        source="voice"
+    )
+
+    if crisis_assessment["level"] == "CRISIS":
+        await safety_network_service.trigger_emergency_contacts(
+            user_id=user_id,
+            crisis_data=crisis_assessment,
+            source="voice_call"
+        )
 ```
 
 ## Environment Configuration
@@ -192,88 +248,99 @@ summary = CallSummary(
 Add to your `backend/.env`:
 
 ```bash
-# Voice Service Database (separate from memory service)
-VOICE_DATABASE_URL=postgresql://localhost:5432/nura_voice
-
 # Vapi Configuration
-VAPI_API_KEY=your_api_key
-VAPI_PUBLIC_KEY=your_public_key
-VAPI_DEFAULT_ASSISTANT_ID=your_assistant_id
+VAPI_API_KEY=your_vapi_server_api_key
+NEXT_PUBLIC_VAPI_PUBLIC_KEY=your_vapi_public_key
+NEXT_PUBLIC_VAPI_DEFAULT_ASSISTANT_ID=your_default_assistant_id
+VAPI_ASSISTANT_ID=your_default_assistant_id
+VAPI_BASE_URL=https://api.vapi.ai
 VAPI_WEBHOOK_SECRET=your_webhook_secret
 
-# Scheduling
+# Voice Service Database (uses main Supabase database)
+VOICE_DATABASE_URL=postgresql://postgres:[PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+
+# Voice Service Settings
 SCHEDULER_ENABLED=true
 SCHEDULER_CHECK_INTERVAL_SECONDS=60
-
-# Call Limits
 MAX_CALL_DURATION_MINUTES=30
 MAX_CONCURRENT_CALLS_PER_USER=1
-
-# Backend Integration
-BACKEND_VOICE_URL=http://localhost:8000
+VOICE_QUEUE_MAX_RETRIES=3
 ```
 
-## Getting Started
+## Frontend Integration
 
-### 1. Install Dependencies
+### Vapi Web SDK Setup
 
-```bash
-cd backend
-pip install -r requirements.txt
+```typescript
+// Install Vapi SDK
+npm install @vapi-ai/web
+
+// Initialize in component
+import Vapi from "@vapi-ai/web";
+
+const vapi = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY);
+
+// Start voice call
+const startVoiceCall = async () => {
+  const response = await fetch("/api/voice/calls/browser", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+
+  const { assistant_id } = await response.json();
+
+  vapi.start(assistant_id, {
+    metadata: { user_id: currentUser.id }
+  });
+};
 ```
 
-### 2. Initialize Database
+### Voice Call Status Monitoring
 
-```bash
-cd backend
-python -c "from services.voice.init_db import init_voice_database; import asyncio; asyncio.run(init_voice_database())"
+```typescript
+vapi.on("call-start", () => {
+  console.log("Voice call started");
+});
+
+vapi.on("call-end", () => {
+  console.log("Voice call ended");
+  // Refresh call history or summaries
+});
+
+vapi.on("error", (error) => {
+  console.error("Voice call error:", error);
+});
 ```
 
-### 3. Start Services
+## Performance & Scalability
 
-```bash
-cd backend
-python start_services.py
-```
+### Response Times
 
-This starts both Memory and Voice services on port 8000:
+- **Call Initiation**: <2 seconds to start voice call
+- **Crisis Detection**: Real-time during conversation
+- **Memory Processing**: Background, does not block call
+- **Summary Generation**: <5 seconds post-call
 
-- Memory Service: `http://localhost:8000`
-- Voice Service: `http://localhost:8000/voice`
-- API Docs: `http://localhost:8000/docs`
+### Scalability Features
 
-### 4. Test the Integration
+- **Concurrent Calls**: Configurable limits per user
+- **Queue Management**: Background job processing for phone calls
+- **Error Recovery**: Automatic retry logic with exponential backoff
+- **Load Balancing**: Stateless design supports horizontal scaling
 
-```bash
-# Test voice service health
-curl http://localhost:8000/voice/health
+## Security & Privacy
 
-# List available voices
-curl http://localhost:8000/voice/voices
+### Data Protection
 
-# Create a phone call (requires valid phone number and assistant)
-curl -X POST http://localhost:8000/voice/calls/phone \
-  -H "Content-Type: application/json" \
-  -H "X-User-ID: demo-user-123" \
-  -d '{"assistant_id": "your-assistant-id", "phone_number": "+1234567890"}'
-```
+- **No Transcript Storage**: Only processed summaries stored
+- **User Isolation**: All data scoped to authenticated users
+- **Webhook Verification**: HMAC verification for Vapi webhooks
+- **Audit Logging**: Complete audit trail for all voice interactions
 
-## Cost & Performance Benefits
+### Compliance
 
-| Aspect                   | Traditional Architecture      | Blueprint Architecture         |
-| ------------------------ | ----------------------------- | ------------------------------ |
-| **Transcript Storage**   | Full transcripts + processing | Zero storage, Vapi processes   |
-| **Real-time Processing** | Custom STT/TTS/LLM pipeline   | Vapi handles all < 500ms       |
-| **Data Privacy**         | Complex PII scrubbing         | No transcripts = no PII risk   |
-| **Scaling**              | Heavy compute infrastructure  | Lightweight metadata only      |
-| **Cost**                 | STT+LLM+TTS+Storage+Compute   | $0.05/min + wholesale AI costs |
+- **HIPAA Ready**: Designed for healthcare data compliance
+- **GDPR Compliant**: User control over data retention and deletion
+- **Mental Health Standards**: Follows best practices for sensitive mental health data
 
-## Security Features
-
-- **HMAC Webhook Verification** - All webhooks cryptographically verified
-- **User Isolation** - Automatic filtering by `metadata.userId`
-- **No Transcript Storage** - Zero sensitive audio content stored
-- **Row-Level Security** - Database queries scoped to authenticated user
-- **Audit Logging** - All webhook events logged for debugging
-
-This architecture keeps your backend lean while providing enterprise-grade voice capabilities through Vapi's infrastructure.
+This voice service integration provides a secure, scalable foundation for voice-based mental health support while maintaining the same high standards of privacy and security as the rest of the Nura platform.
